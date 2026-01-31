@@ -1,0 +1,395 @@
+# Rung Architecture Decisions Log
+
+## Format
+Each decision follows this structure:
+- **Date**: When the decision was made
+- **Decision**: What was decided
+- **Context**: Why this decision was needed
+- **Options Considered**: Alternatives evaluated
+- **Rationale**: Why this option was chosen
+- **Consequences**: Trade-offs and implications
+- **Status**: Accepted | Superseded | Deprecated
+
+---
+
+## ADR-001: LLM Provider Selection
+
+**Date**: 2026-01-31
+**Status**: Accepted
+
+### Decision
+Use AWS Bedrock (Claude) as the exclusive LLM provider for all AI inference.
+
+### Context
+The system requires LLM capabilities for:
+- Clinical analysis (Rung agent)
+- Client guide generation (Beth agent)
+- Framework extraction
+- Pattern detection
+
+### Options Considered
+1. **Direct Anthropic API** - Lower latency, simpler integration
+2. **AWS Bedrock (Claude)** - HIPAA BAA available, AWS-native
+3. **Azure OpenAI** - HIPAA compliant, GPT-4 available
+4. **Self-hosted open source** - Full control, no external calls
+
+### Rationale
+- AWS Bedrock provides HIPAA BAA coverage, which is mandatory for PHI processing
+- Keeps all infrastructure within AWS for simplified compliance and networking
+- Claude 3.5 Sonnet provides excellent clinical reasoning capabilities
+- Avoids data egress to third-party APIs for PHI content
+
+### Consequences
+- **Positive**: Single compliance boundary (AWS), simplified BAA
+- **Positive**: Lower latency (no cross-cloud traffic)
+- **Negative**: Tied to AWS ecosystem
+- **Negative**: May have higher per-token cost than direct API
+- **Mitigation**: Monitor costs, evaluate provisioned throughput for high volume
+
+---
+
+## ADR-002: Orchestration Engine Selection
+
+**Date**: 2026-01-31
+**Status**: Accepted
+
+### Decision
+Use self-hosted n8n on EC2 for workflow orchestration instead of n8n cloud or AWS Step Functions.
+
+### Context
+Need a workflow orchestration system that:
+- Can be covered under HIPAA BAA
+- Supports complex conditional logic
+- Has good visibility/debugging
+- Integrates with AWS services
+
+### Options Considered
+1. **AWS Step Functions** - Native AWS, excellent integration
+2. **n8n Cloud** - Managed, easy setup, but no BAA available
+3. **n8n Self-hosted** - HIPAA possible, full control
+4. **Temporal** - Excellent reliability, steeper learning curve
+5. **Custom Lambda orchestration** - Full control, high development cost
+
+### Rationale
+- n8n self-hosted allows HIPAA coverage under our own infrastructure
+- Visual workflow builder accelerates development
+- Existing team experience with n8n (per CLAUDE.md: "n8n: Being phased out - use only for existing workflows")
+- Exception made here because alternative (Step Functions) lacks visual debugging for complex AI workflows
+- Self-hosted version keeps PHI within our VPC
+
+### Consequences
+- **Positive**: Visual workflow builder speeds development
+- **Positive**: PHI stays in controlled infrastructure
+- **Positive**: Leverages existing team knowledge
+- **Negative**: Operational burden of self-hosting
+- **Negative**: n8n is being phased out per project guidelines - needs migration plan
+- **Mitigation**: Document migration path to Step Functions or Temporal post-MVP
+- **Follow-up**: Create migration roadmap by Phase 6 completion
+
+---
+
+## ADR-003: Agent Isolation Architecture
+
+**Date**: 2026-01-31
+**Status**: Accepted
+
+### Decision
+Implement strict context isolation between Rung and Beth agents through separate Bedrock inference calls with distinct system prompts and input filtering.
+
+### Context
+Two agents serve different purposes:
+- **Rung**: Clinical analysis (for therapist)
+- **Beth**: Client communication (accessible language)
+
+Risk: Clinical terminology or raw session data leaking into client-facing content.
+
+### Options Considered
+1. **Single agent, multiple personas** - Simpler, risk of context bleed
+2. **Separate inference calls** - Clean isolation, more API calls
+3. **Separate model deployments** - Maximum isolation, highest cost
+4. **Abstraction layer between agents** - Middle ground
+
+### Rationale
+- Separate inference calls with distinct system prompts provide clean boundaries
+- Abstraction layer ensures Beth only receives processed themes, not raw transcripts
+- Cost is manageable (2 Bedrock calls vs 1)
+- Reduces risk of clinical terminology appearing in client guides
+- Easier to audit what each agent receives
+
+### Consequences
+- **Positive**: Clear security boundary between clinical and client content
+- **Positive**: Auditable input/output per agent
+- **Positive**: Can tune each agent independently
+- **Negative**: Doubled Bedrock costs for dual-output workflows
+- **Negative**: Additional latency (sequential in some cases)
+- **Mitigation**: Parallel processing where possible, cache common abstractions
+
+---
+
+## ADR-004: Couples Merge Data Isolation
+
+**Date**: 2026-01-31
+**Status**: Accepted
+
+### Decision
+Couples merge workflow operates ONLY at the framework/pattern level, never passing raw session data between partner contexts.
+
+### Context
+Couples therapy requires understanding both partners' perspectives, but individual session content is confidential. Need to find shared patterns without exposing individual PHI.
+
+### Options Considered
+1. **Full data merge** - Complete visibility, major privacy violation
+2. **Framework-only merge** - Abstract patterns only, preserves privacy
+3. **Therapist-mediated merge** - Manual selection, slow and error-prone
+4. **No merge capability** - Safe but limits clinical utility
+
+### Rationale
+- Framework-level abstraction (e.g., "attachment anxiety pattern" vs. "said they feel abandoned when partner works late") provides clinical value
+- Strict isolation prevents accidental PHI exposure
+- Audit logging tracks every merge operation
+- framework_only flag enforced at database level
+
+### Consequences
+- **Positive**: Preserves individual confidentiality
+- **Positive**: Still provides meaningful couples insights
+- **Positive**: Clear compliance boundary
+- **Negative**: Some clinical nuance may be lost in abstraction
+- **Negative**: Requires careful design of abstraction layer
+- **Mitigation**: Work with clinical advisors to validate abstraction preserves utility
+
+---
+
+## ADR-005: Research API (Perplexity) Integration Strategy
+
+**Date**: 2026-01-31
+**Status**: Accepted
+
+### Decision
+Use Perplexity Labs API for evidence-based research with mandatory query anonymization before any API call.
+
+### Context
+Clinical briefs benefit from current research citations. Need external research capability but Perplexity does not offer HIPAA BAA.
+
+### Options Considered
+1. **Skip external research** - Safe but reduces clinical value
+2. **Build internal research database** - High cost, maintenance burden
+3. **Perplexity with anonymization** - Good results, requires careful handling
+4. **PubMed API only** - Free, limited, no AI synthesis
+
+### Rationale
+- Perplexity provides excellent research synthesis with citations
+- Anonymization layer strips all PHI before API calls
+- Queries like "evidence-based frameworks for attachment anxiety" contain no PHI
+- Adds significant clinical value to briefs
+
+### Consequences
+- **Positive**: Rich research citations improve clinical brief quality
+- **Positive**: Current research (not stale database)
+- **Negative**: Requires rigorous anonymization
+- **Negative**: No BAA - any PHI leak is serious breach
+- **Mitigation**: Automated PHI detection before API call, manual audit of sample queries, fail-safe that blocks suspicious queries
+
+---
+
+## ADR-006: Encryption Strategy
+
+**Date**: 2026-01-31
+**Status**: Accepted
+
+### Decision
+Implement three-layer encryption: Transport (TLS 1.3), At-rest (AWS managed), and Field-level (KMS with key hierarchy).
+
+### Context
+HIPAA requires encryption of PHI at rest and in transit. Beyond compliance, defense-in-depth is critical for healthcare data.
+
+### Options Considered
+1. **Transport + At-rest only** - Meets minimum HIPAA, simpler
+2. **Full field-level encryption** - Maximum protection, complex
+3. **Client-side encryption only** - Most secure, key management burden
+4. **Application-level encryption** - Flexible, performance impact
+
+### Rationale
+- Field-level encryption ensures PHI is protected even if database is compromised
+- KMS key hierarchy (CMK -> Therapist DEK -> Client DEK) enables fine-grained access control
+- AWS-managed at-rest encryption handles underlying storage
+- TLS 1.3 for all external and mTLS for internal service communication
+
+### Consequences
+- **Positive**: Defense-in-depth for PHI
+- **Positive**: Per-therapist key isolation
+- **Positive**: Compliance with HIPAA encryption requirements
+- **Negative**: Performance overhead for encrypt/decrypt
+- **Negative**: Complexity in key management
+- **Negative**: Cannot search encrypted fields directly
+- **Mitigation**: Cache decryption where safe, use separate searchable metadata fields
+
+---
+
+## ADR-007: Context Persistence with Perceptor MCP
+
+**Date**: 2026-01-31
+**Status**: Accepted
+
+### Decision
+Use Perceptor MCP (custom deployment) for longitudinal client context persistence rather than building custom context storage.
+
+### Context
+System needs to maintain context across sessions for:
+- Pattern tracking over time
+- Development progress
+- Historical framework usage
+- Session summaries
+
+### Options Considered
+1. **Custom context tables in RDS** - Full control, development cost
+2. **Perceptor MCP** - Purpose-built, existing tool
+3. **Vector database (Pinecone/Weaviate)** - Semantic search, overkill for structured context
+4. **S3 with structured files** - Simple, limited query capability
+
+### Rationale
+- Perceptor MCP is already in use in the team's stack
+- Designed for exactly this use case (context persistence across conversations)
+- Can be deployed as sidecar with n8n
+- Supports encryption at the storage layer
+- Reduces custom development
+
+### Consequences
+- **Positive**: Leverages existing tool
+- **Positive**: Reduces development time
+- **Positive**: Built-in context summarization
+- **Negative**: Additional component to deploy/maintain
+- **Negative**: Custom integration required for healthcare use case
+- **Mitigation**: Document custom encryption requirements, create healthcare-specific wrapper
+
+---
+
+## ADR-008: Authentication Provider
+
+**Date**: 2026-01-31
+**Status**: Accepted
+
+### Decision
+Use AWS Cognito for therapist authentication with mandatory MFA.
+
+### Context
+Need secure authentication for therapists accessing PHI. System must:
+- Support MFA (HIPAA requirement for PHI access)
+- Issue JWTs for API authorization
+- Integrate with AWS services
+- Support password policies
+
+### Options Considered
+1. **AWS Cognito** - Native AWS, HIPAA eligible, managed
+2. **Auth0** - Feature-rich, HIPAA BAA available, additional vendor
+3. **Okta** - Enterprise-grade, expensive for small scale
+4. **Custom JWT implementation** - Maximum control, security risk
+
+### Rationale
+- Cognito is HIPAA eligible under AWS BAA (single BAA for all AWS services)
+- Native integration with API Gateway and Lambda
+- Supports required MFA
+- Managed service reduces operational burden
+- Cost-effective for expected user count
+
+### Consequences
+- **Positive**: Single BAA with AWS
+- **Positive**: Native AWS integration
+- **Positive**: Managed MFA
+- **Negative**: Less flexible than dedicated auth providers
+- **Negative**: UI customization is limited
+- **Mitigation**: Use hosted UI initially, custom UI if needed post-MVP
+
+---
+
+## ADR-009: Notification Strategy
+
+**Date**: 2026-01-31
+**Status**: Accepted
+
+### Decision
+Use Slack for workflow status notifications with strict prohibition on PHI in any notification content.
+
+### Context
+Therapists need to know when workflows complete. Options for notification include email, SMS, push, or team messaging.
+
+### Options Considered
+1. **Email** - Universal, can include links, needs email service
+2. **SMS** - Immediate, character limits, costs
+3. **Push notifications** - Requires mobile app
+4. **Slack** - Team already uses it, webhooks easy
+5. **In-app only** - Requires polling, may miss notifications
+
+### Rationale
+- Slack is already in team workflow (per requirements)
+- Simple webhook integration with n8n
+- No BAA needed because NO PHI is sent to Slack
+- Notifications contain only: workflow ID, status, timestamp, and generic message
+
+### Consequences
+- **Positive**: Leverages existing team tool
+- **Positive**: Simple integration
+- **Positive**: No PHI risk (by design)
+- **Negative**: Requires therapists to use Slack
+- **Negative**: Not suitable for client notifications
+- **Mitigation**: Add email option for client guide delivery in future phase
+
+---
+
+## ADR-010: API Design Style
+
+**Date**: 2026-01-31
+**Status**: Accepted
+
+### Decision
+Use RESTful API design with resource-oriented URLs and JSON responses. No GraphQL for MVP.
+
+### Context
+Need to define API contract for client applications (web/mobile) to interact with Rung backend.
+
+### Options Considered
+1. **REST** - Well understood, tooling mature, straightforward
+2. **GraphQL** - Flexible queries, single endpoint, complexity
+3. **gRPC** - High performance, streaming, web browser challenges
+4. **REST + GraphQL hybrid** - Best of both, operational complexity
+
+### Rationale
+- REST is simpler to implement and document
+- Healthcare domain has well-defined resources (clients, sessions, briefs)
+- Query flexibility of GraphQL not needed - data shapes are predictable
+- Easier to secure at endpoint level
+- Better tooling for OpenAPI spec generation
+
+### Consequences
+- **Positive**: Simpler implementation
+- **Positive**: Clear endpoint authorization
+- **Positive**: Wide tooling support (Postman, OpenAPI)
+- **Negative**: May need multiple calls where GraphQL would use one
+- **Negative**: Over-fetching possible
+- **Mitigation**: Design efficient response schemas, add field filtering if needed
+
+---
+
+## Pending Decisions
+
+### PDR-001: Post-MVP Migration from n8n
+- **Context**: n8n is being phased out per team guidelines
+- **Options**: AWS Step Functions, Temporal, custom orchestration
+- **Timeline**: Decide by end of Phase 6
+- **Owner**: TBD
+
+### PDR-002: Client Notification System
+- **Context**: Currently only therapist notifications via Slack
+- **Options**: Email, SMS, in-app, push
+- **Timeline**: Post-MVP based on beta feedback
+- **Owner**: TBD
+
+### PDR-003: Multi-Tenancy Architecture
+- **Context**: Current design is single-practice; may need multi-tenant for scale
+- **Options**: Database per tenant, schema per tenant, row-level isolation
+- **Timeline**: Evaluate after beta
+- **Owner**: TBD
+
+---
+
+*Log maintained by: Backend Architect*
+*Last Updated: 2026-01-31*
