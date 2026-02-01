@@ -49,6 +49,30 @@ variable "environment" {
 }
 
 #------------------------------------------------------------------------------
+# S3 Variables
+#------------------------------------------------------------------------------
+variable "cors_allowed_origins" {
+  description = "List of allowed origins for S3 CORS configuration"
+  type        = list(string)
+  default     = ["https://localhost:3000"]  # Update for production
+}
+
+#------------------------------------------------------------------------------
+# Cognito Variables
+#------------------------------------------------------------------------------
+variable "cognito_callback_urls" {
+  description = "List of allowed callback URLs after Cognito authentication"
+  type        = list(string)
+  default     = ["https://localhost:3000/auth/callback"]  # Update for production
+}
+
+variable "cognito_logout_urls" {
+  description = "List of allowed logout URLs for Cognito"
+  type        = list(string)
+  default     = ["https://localhost:3000/logout"]  # Update for production
+}
+
+#------------------------------------------------------------------------------
 # VPC Module
 #------------------------------------------------------------------------------
 module "vpc" {
