@@ -1,0 +1,442 @@
+{
+  "name": "Rung Pre-Session Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pre-session-trigger",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getObject",
+        "bucketName": "={{ $env.VOICE_MEMOS_BUCKET }}",
+        "fileKey": "={{ $json.session_id }}/{{ $json.voice_memo_key }}"
+      },
+      "id": "fetch-voice-memo",
+      "name": "Fetch Voice Memo from S3",
+      "type": "n8n-nodes-base.awsS3",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "aws": {
+          "id": "aws-credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_BASE_URL }}/sessions/{{ $json.session_id }}/transcription/status",
+        "method": "GET",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "check-transcription",
+      "name": "Check Transcription Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equals",
+              "value2": "COMPLETED"
+            }
+          ]
+        }
+      },
+      "id": "transcription-complete-check",
+      "name": "Transcription Complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "wait-transcription",
+      "name": "Wait for Transcription",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [900, 500]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_BASE_URL }}/sessions/{{ $json.session_id }}/transcript",
+        "method": "GET"
+      },
+      "id": "fetch-transcript",
+      "name": "Fetch Transcript",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $node['Load Rung Prompt'].json.prompt }}"
+            },
+            {
+              "content": "={{ $json.transcript }}",
+              "role": "user"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 4096,
+          "temperature": 0.3
+        }
+      },
+      "id": "rung-analysis",
+      "name": "Rung Analysis (Bedrock)",
+      "type": "n8n-nodes-base.awsBedrock",
+      "typeVersion": 1,
+      "position": [1340, 300],
+      "credentials": {
+        "aws": {
+          "id": "aws-credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Abstraction layer - strip clinical terminology\nconst rungOutput = JSON.parse($input.item.json.content);\n\nconst CLINICAL_TERMS = {\n  'avoidant attachment': 'connection patterns',\n  'anxious attachment': 'relationship concerns',\n  'stonewalling': 'communication challenges',\n  'intellectualization': 'thinking patterns',\n  'defense mechanism': 'coping patterns'\n};\n\nfunction transform(text) {\n  let result = text.toLowerCase();\n  for (const [clinical, accessible] of Object.entries(CLINICAL_TERMS)) {\n    result = result.replace(new RegExp(clinical, 'gi'), accessible);\n  }\n  return result.charAt(0).toUpperCase() + result.slice(1);\n}\n\nconst bethInput = {\n  themes: (rungOutput.key_themes || []).map(transform),\n  exploration_areas: (rungOutput.suggested_exploration || []).map(transform),\n  session_focus: transform(rungOutput.key_themes?.[0] || 'exploring what\\'s on your mind')\n};\n\nreturn {\n  rung_output: rungOutput,\n  beth_input: bethInput\n};"
+      },
+      "id": "abstraction-layer",
+      "name": "Abstraction Layer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $node['Load Beth Prompt'].json.prompt }}"
+            },
+            {
+              "content": "Create a session prep guide based on these themes:\n{{ JSON.stringify($json.beth_input) }}",
+              "role": "user"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 2048,
+          "temperature": 0.7
+        }
+      },
+      "id": "beth-generation",
+      "name": "Beth Generation (Bedrock)",
+      "type": "n8n-nodes-base.awsBedrock",
+      "typeVersion": 1,
+      "position": [1780, 300],
+      "credentials": {
+        "aws": {
+          "id": "aws-credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store both outputs\nconst rungOutput = $('Abstraction Layer').item.json.rung_output;\nconst bethOutput = JSON.parse($input.item.json.content);\n\nreturn {\n  session_id: $('Webhook Trigger').item.json.session_id,\n  clinical_brief: rungOutput,\n  client_guide: bethOutput,\n  processed_at: new Date().toISOString()\n};"
+      },
+      "id": "prepare-outputs",
+      "name": "Prepare Dual Outputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": "public",
+        "table": "clinical_briefs",
+        "columns": "session_id, content_encrypted, frameworks_identified, risk_flags, created_at",
+        "additionalFields": {}
+      },
+      "id": "store-clinical-brief",
+      "name": "Store Clinical Brief",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2220, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": "public",
+        "table": "client_guides",
+        "columns": "session_id, content_encrypted, key_points, exercises_suggested, created_at",
+        "additionalFields": {}
+      },
+      "id": "store-client-guide",
+      "name": "Store Client Guide",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2220, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "={{ $json.session_id }}/{{ $json.processed_at }}.json",
+        "fileName": "context.json",
+        "options": {}
+      },
+      "id": "archive-perceptor",
+      "name": "Archive to Perceptor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 300],
+      "notes": "Save context for longitudinal tracking"
+    },
+    {
+      "parameters": {
+        "channel": "#rung-notifications",
+        "text": "Pre-session processing complete for session {{ $json.session_id }}",
+        "otherOptions": {}
+      },
+      "id": "slack-notification",
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [2660, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'completed', session_id: $json.session_id }) }}"
+      },
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2880, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Voice Memo from S3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Voice Memo from S3": {
+      "main": [
+        [
+          {
+            "node": "Check Transcription Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Transcription Status": {
+      "main": [
+        [
+          {
+            "node": "Transcription Complete?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcription Complete?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for Transcription",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Transcription": {
+      "main": [
+        [
+          {
+            "node": "Check Transcription Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Transcript": {
+      "main": [
+        [
+          {
+            "node": "Rung Analysis (Bedrock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rung Analysis (Bedrock)": {
+      "main": [
+        [
+          {
+            "node": "Abstraction Layer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abstraction Layer": {
+      "main": [
+        [
+          {
+            "node": "Beth Generation (Bedrock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Beth Generation (Bedrock)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Dual Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Dual Outputs": {
+      "main": [
+        [
+          {
+            "node": "Store Clinical Brief",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Store Client Guide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Clinical Brief": {
+      "main": [
+        [
+          {
+            "node": "Archive to Perceptor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Client Guide": {
+      "main": [
+        [
+          {
+            "node": "Archive to Perceptor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive to Perceptor": {
+      "main": [
+        [
+          {
+            "node": "Slack Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Notification": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "executionTimeout": 300
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "rung",
+      "id": "rung-tag"
+    },
+    {
+      "name": "pre-session",
+      "id": "pre-session-tag"
+    },
+    {
+      "name": "hipaa",
+      "id": "hipaa-tag"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2026-02-01T00:00:00.000Z",
+  "versionId": "1.0.0"
+}
