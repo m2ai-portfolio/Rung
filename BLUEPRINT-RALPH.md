@@ -972,6 +972,7 @@ Output: <promise>PHASE_6_COMPLETE</promise>
 | 1A | VPC/Network | 25 | PHASE_1A_COMPLETE | ✅ DONE |
 | 1B | RDS/KMS | 25 | PHASE_1B_COMPLETE | ✅ DONE |
 | 1C | S3/Cognito | 25 | PHASE_1C_COMPLETE | ✅ DONE |
+| 1D | DB Schema | 30 | PHASE_1D_COMPLETE | ✅ DONE |
 | 1D | DB Schema | 30 | PHASE_1D_COMPLETE |
 | 2A | Voice Processing | 30 | PHASE_2A_COMPLETE |
 | 2B | Rung Agent | 30 | PHASE_2B_COMPLETE |
