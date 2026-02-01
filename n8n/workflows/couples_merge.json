@@ -1,0 +1,614 @@
+{
+  "name": "Rung Couples Merge Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "couples-merge",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "couples-merge-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-link-id",
+              "leftValue": "={{ $json.body.couple_link_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "validate-session-id",
+              "leftValue": "={{ $json.body.session_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: 'Invalid input: couple_link_id and session_id are required' }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "error-invalid-input",
+      "name": "Error: Invalid Input",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [690, 480]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.RUNG_API_URL }}/couples/{{ $json.body.couple_link_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-User-Id",
+              "value": "={{ $json.body.therapist_id }}"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "therapist"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "get-couple-link",
+      "name": "Get Couple Link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-link-active",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "active",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-link-status",
+      "name": "Check Link Active",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: 'Couple link is not active' }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "error-inactive-link",
+      "name": "Error: Inactive Link",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1130, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract partner IDs from couple link\nconst coupleLink = $('Get Couple Link').item.json;\nconst webhookData = $('Webhook Trigger').item.json.body;\n\nreturn {\n  couple_link_id: webhookData.couple_link_id,\n  session_id: webhookData.session_id,\n  therapist_id: webhookData.therapist_id,\n  partner_a_id: coupleLink.partner_a_id,\n  partner_b_id: coupleLink.partner_b_id\n};"
+      },
+      "id": "extract-partner-ids",
+      "name": "Extract Partner IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.RUNG_API_URL }}/clients/{{ $json.partner_a_id }}/latest-analysis",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-User-Id",
+              "value": "={{ $json.therapist_id }}"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "therapist"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-partner-a-analysis",
+      "name": "Fetch Partner A Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.RUNG_API_URL }}/clients/{{ $('Extract Partner IDs').item.json.partner_b_id }}/latest-analysis",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-User-Id",
+              "value": "={{ $('Extract Partner IDs').item.json.therapist_id }}"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "therapist"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-partner-b-analysis",
+      "name": "Fetch Partner B Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine analyses for merge\nconst partnerA = $('Fetch Partner A Analysis').item.json;\nconst partnerB = $('Fetch Partner B Analysis').item.json;\nconst ids = $('Extract Partner IDs').item.json;\n\nreturn {\n  couple_link_id: ids.couple_link_id,\n  session_id: ids.session_id,\n  therapist_id: ids.therapist_id,\n  partner_a_analysis: partnerA,\n  partner_b_analysis: partnerB\n};"
+      },
+      "id": "combine-analyses",
+      "name": "Combine Analyses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1570, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.RUNG_API_URL }}/couples/{{ $json.couple_link_id }}/merge",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-User-Id",
+              "value": "={{ $json.therapist_id }}"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "therapist"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session_id: $json.session_id, partner_a_analysis: $json.partner_a_analysis, partner_b_analysis: $json.partner_b_analysis }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "execute-merge",
+      "name": "Execute Merge",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1790, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create audit log entry\nconst mergeResult = $('Execute Merge').item.json;\nconst ids = $('Extract Partner IDs').item.json;\n\nconst auditEntry = {\n  id: require('crypto').randomUUID(),\n  event_type: 'couples_merge',\n  couple_link_id: ids.couple_link_id,\n  session_id: ids.session_id,\n  therapist_id: ids.therapist_id,\n  action: 'merge_completed',\n  partner_a_id: ids.partner_a_id,\n  partner_b_id: ids.partner_b_id,\n  isolation_invoked: true,\n  frameworks_accessed: {\n    partner_a_count: mergeResult.partner_a_frameworks?.length || 0,\n    partner_b_count: mergeResult.partner_b_frameworks?.length || 0\n  },\n  result_summary: mergeResult.match_summary,\n  created_at: new Date().toISOString()\n};\n\nreturn {\n  merge_result: mergeResult,\n  audit_entry: auditEntry\n};"
+      },
+      "id": "create-audit-entry",
+      "name": "Create Audit Entry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2010, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Archive to Perceptor\nconst { merge_result, audit_entry } = $input.item.json;\nconst ids = $('Extract Partner IDs').item.json;\n\nconst content = {\n  couple_link_id: ids.couple_link_id,\n  session_id: ids.session_id,\n  merge: {\n    overlapping_themes: merge_result.overlapping_themes,\n    complementary_patterns: merge_result.complementary_patterns,\n    potential_conflicts: merge_result.potential_conflicts,\n    suggested_focus_areas: merge_result.suggested_focus_areas,\n    couples_exercises: merge_result.couples_exercises\n  },\n  audit: {\n    isolation_invoked: true,\n    partner_a_frameworks_count: merge_result.partner_a_frameworks?.length || 0,\n    partner_b_frameworks_count: merge_result.partner_b_frameworks?.length || 0\n  },\n  timestamp: new Date().toISOString()\n};\n\nreturn {\n  title: `Couples Merge - ${ids.session_id.slice(0, 8)}`,\n  content: JSON.stringify(content, null, 2),\n  summary: merge_result.match_summary,\n  tags: ['couples-merge', 'rung', ...merge_result.overlapping_themes.slice(0, 3)],\n  merge_result,\n  audit_entry\n};"
+      },
+      "id": "prepare-perceptor-archive",
+      "name": "Prepare Perceptor Archive",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2230, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PERCEPTOR_API_URL }}/save",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $json.title, content: $json.content, summary: $json.summary, tags: $json.tags, projects: ['Rung'], source: 'n8n' }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "archive-to-perceptor",
+      "name": "Archive to Perceptor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2450, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL_RUNG }}",
+        "text": "",
+        "blocksUi": {
+          "blocksValues": [
+            {
+              "type": "header",
+              "text": {
+                "type": "plain_text",
+                "text": "Couples Merge Complete",
+                "emoji": true
+              }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Couple Link:* {{ $('Extract Partner IDs').item.json.couple_link_id.slice(0, 8) }}...\n*Session:* {{ $('Extract Partner IDs').item.json.session_id.slice(0, 8) }}..."
+              }
+            },
+            {
+              "type": "section",
+              "fields": [
+                {
+                  "type": "mrkdwn",
+                  "text": "*Overlapping Themes:*\n{{ $('Prepare Perceptor Archive').item.json.merge_result.overlapping_themes.join(', ') || 'None' }}"
+                },
+                {
+                  "type": "mrkdwn",
+                  "text": "*Complementary Patterns:*\n{{ $('Prepare Perceptor Archive').item.json.merge_result.complementary_patterns.length || 0 }}"
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "fields": [
+                {
+                  "type": "mrkdwn",
+                  "text": "*Potential Conflicts:*\n{{ $('Prepare Perceptor Archive').item.json.merge_result.potential_conflicts.length || 0 }}"
+                },
+                {
+                  "type": "mrkdwn",
+                  "text": "*Exercises Suggested:*\n{{ $('Prepare Perceptor Archive').item.json.merge_result.couples_exercises.length || 0 }}"
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Focus Areas:*\n{{ $('Prepare Perceptor Archive').item.json.merge_result.suggested_focus_areas.map(a => '• ' + a).join('\\n') || 'None identified' }}"
+              }
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": ":lock: Isolation layer invoked | Archived to Perceptor: {{ $('Archive to Perceptor').item.json.id ? 'Yes' : 'No' }}"
+                }
+              ]
+            }
+          ]
+        },
+        "otherOptions": {}
+      },
+      "id": "slack-notification",
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2670, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-rung",
+          "name": "Slack Rung"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build final response\nconst { merge_result, audit_entry } = $('Prepare Perceptor Archive').item.json;\nconst perceptorResult = $('Archive to Perceptor').item.json;\nconst ids = $('Extract Partner IDs').item.json;\n\nreturn {\n  status: 'completed',\n  couple_link_id: ids.couple_link_id,\n  session_id: ids.session_id,\n  merge: {\n    id: merge_result.id,\n    overlapping_themes: merge_result.overlapping_themes,\n    complementary_patterns: merge_result.complementary_patterns,\n    potential_conflicts: merge_result.potential_conflicts,\n    suggested_focus_areas: merge_result.suggested_focus_areas,\n    exercises_count: merge_result.couples_exercises?.length || 0\n  },\n  audit: {\n    isolation_invoked: true,\n    audit_id: audit_entry.id\n  },\n  perceptor_archived: !!perceptorResult?.id,\n  processed_at: new Date().toISOString()\n};"
+      },
+      "id": "build-response",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2890, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3110, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: 'Merge failed', details: $json.message || 'Unknown error' }) }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2010, 480]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Get Couple Link",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error: Invalid Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Couple Link": {
+      "main": [
+        [
+          {
+            "node": "Check Link Active",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Link Active": {
+      "main": [
+        [
+          {
+            "node": "Extract Partner IDs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error: Inactive Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Partner IDs": {
+      "main": [
+        [
+          {
+            "node": "Fetch Partner A Analysis",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Partner B Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Partner A Analysis": {
+      "main": [
+        [
+          {
+            "node": "Combine Analyses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Partner B Analysis": {
+      "main": [
+        [
+          {
+            "node": "Combine Analyses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Analyses": {
+      "main": [
+        [
+          {
+            "node": "Execute Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Merge": {
+      "main": [
+        [
+          {
+            "node": "Create Audit Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Audit Entry": {
+      "main": [
+        [
+          {
+            "node": "Prepare Perceptor Archive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Perceptor Archive": {
+      "main": [
+        [
+          {
+            "node": "Archive to Perceptor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive to Perceptor": {
+      "main": [
+        [
+          {
+            "node": "Slack Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Notification": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "rung",
+      "id": "tag-rung"
+    },
+    {
+      "name": "couples",
+      "id": "tag-couples"
+    },
+    {
+      "name": "merge",
+      "id": "tag-merge"
+    }
+  ],
+  "pinData": {},
+  "versionId": "1"
+}

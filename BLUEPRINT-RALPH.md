@@ -973,15 +973,14 @@ Output: <promise>PHASE_6_COMPLETE</promise>
 | 1B | RDS/KMS | 25 | PHASE_1B_COMPLETE | ✅ DONE |
 | 1C | S3/Cognito | 25 | PHASE_1C_COMPLETE | ✅ DONE |
 | 1D | DB Schema | 30 | PHASE_1D_COMPLETE | ✅ DONE |
-| 1D | DB Schema | 30 | PHASE_1D_COMPLETE |
-| 2A | Voice Processing | 30 | PHASE_2A_COMPLETE |
-| 2B | Rung Agent | 30 | PHASE_2B_COMPLETE |
-| 2C | Research | 25 | PHASE_2C_COMPLETE |
-| 2D | Beth + Workflow | 40 | PHASE_2D_COMPLETE |
-| 3A | Notes Processing | 25 | PHASE_3A_COMPLETE |
-| 3B | Dev Planning | 30 | PHASE_3B_COMPLETE |
-| 4A | Couple Isolation | 35 | PHASE_4A_COMPLETE |
-| 4B | Merge Workflow | 30 | PHASE_4B_COMPLETE |
+| 2A | Voice Processing | 30 | PHASE_2A_COMPLETE | ✅ DONE |
+| 2B | Rung Agent | 30 | PHASE_2B_COMPLETE | ✅ DONE |
+| 2C | Research | 25 | PHASE_2C_COMPLETE | ✅ DONE |
+| 2D | Beth + Workflow | 40 | PHASE_2D_COMPLETE | ✅ DONE |
+| 3A | Notes Processing | 25 | PHASE_3A_COMPLETE | ✅ DONE |
+| 3B | Dev Planning | 30 | PHASE_3B_COMPLETE | ✅ DONE |
+| 4A | Couple Isolation | 35 | PHASE_4A_COMPLETE | ✅ DONE |
+| 4B | Merge Workflow | 30 | PHASE_4B_COMPLETE | ✅ DONE |
 | 5 | Security | 40 | PHASE_5_COMPLETE |
 | 6 | Production | 35 | PHASE_6_COMPLETE |
 
@@ -989,4 +988,4 @@ Output: <promise>PHASE_6_COMPLETE</promise>
 
 ---
 
-*Last Updated: 2026-01-31*
+*Last Updated: 2026-02-01*
