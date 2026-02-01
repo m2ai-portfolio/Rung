@@ -1,0 +1,576 @@
+{
+  "name": "Rung Post-Session Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "post-session",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "post-session-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-session-id",
+              "leftValue": "={{ $json.body.session_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "validate-notes",
+              "leftValue": "={{ $json.body.notes }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: 'Invalid input: session_id and notes are required' }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "error-invalid-input",
+      "name": "Error: Invalid Input",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [690, 480]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.RUNG_API_URL }}/sessions/{{ $json.body.session_id }}/notes",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-User-Id",
+              "value": "={{ $json.body.therapist_id }}"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "therapist"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "notes",
+              "value": "={{ $json.body.notes }}"
+            },
+            {
+              "name": "encrypt",
+              "value": "={{ $json.body.encrypt ?? true }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "submit-notes",
+      "name": "Submit Notes for Processing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.RUNG_API_URL }}/sessions/{{ $('Webhook Trigger').item.json.body.session_id }}/extraction",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-User-Id",
+              "value": "={{ $('Webhook Trigger').item.json.body.therapist_id }}"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "therapist"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "get-extraction",
+      "name": "Get Framework Extraction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.RUNG_API_URL }}/clients/{{ $('Webhook Trigger').item.json.body.client_id }}/development-plan/history",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-User-Id",
+              "value": "={{ $('Webhook Trigger').item.json.body.therapist_id }}"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "therapist"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "5"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "get-sprint-history",
+      "name": "Get Sprint History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare sprint generation request\nconst extraction = $('Get Framework Extraction').item.json;\nconst history = $('Get Sprint History').item.json;\nconst webhookData = $('Webhook Trigger').item.json.body;\n\n// Determine sprint number\nconst sprintNumber = (history.total_sprints || 0) + 1;\n\n// Build request\nreturn {\n  client_id: webhookData.client_id,\n  session_id: webhookData.session_id,\n  frameworks_discussed: extraction.frameworks_discussed || [],\n  modalities_used: extraction.modalities_used || [],\n  breakthroughs: extraction.breakthroughs || [],\n  progress_indicators: extraction.progress_indicators || [],\n  areas_for_next_session: extraction.areas_for_next_session || [],\n  session_summary: extraction.session_summary,\n  sprint_number: sprintNumber,\n  previous_sprint: history.sprints?.[0] || null\n};"
+      },
+      "id": "prepare-sprint-request",
+      "name": "Prepare Sprint Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.RUNG_API_URL }}/clients/{{ $json.client_id }}/development-plan/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-User-Id",
+              "value": "={{ $('Webhook Trigger').item.json.body.therapist_id }}"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "therapist"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session_id: $json.session_id, frameworks_discussed: $json.frameworks_discussed, modalities_used: $json.modalities_used, breakthroughs: $json.breakthroughs, progress_indicators: $json.progress_indicators, areas_for_next_session: $json.areas_for_next_session, session_summary: $json.session_summary, use_quick_plan: false }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "generate-sprint-plan",
+      "name": "Generate Sprint Plan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1570, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Archive session context to Perceptor via MCP\nconst extraction = $('Get Framework Extraction').item.json;\nconst sprint = $('Generate Sprint Plan').item.json.sprint;\nconst webhookData = $('Webhook Trigger').item.json.body;\n\n// Build content for Perceptor\nconst content = {\n  session_id: webhookData.session_id,\n  client_id: webhookData.client_id,\n  extraction: {\n    frameworks: extraction.frameworks_discussed,\n    modalities: extraction.modalities_used,\n    breakthroughs: extraction.breakthroughs,\n    progress: extraction.progress_indicators,\n    next_session: extraction.areas_for_next_session,\n    summary: extraction.session_summary\n  },\n  sprint: {\n    number: sprint.sprint_number,\n    goals: sprint.goals.map(g => g.goal),\n    exercises: sprint.exercises.map(e => e.name),\n    prompts: sprint.reflection_prompts\n  },\n  timestamp: new Date().toISOString()\n};\n\n// Build tags\nconst tags = [\n  'post-session',\n  'rung',\n  ...extraction.frameworks_discussed.map(f => f.toLowerCase().replace(/\\s+/g, '-')).slice(0, 3)\n];\n\nreturn {\n  title: `Post-Session Context - ${webhookData.session_id.slice(0, 8)}`,\n  content: JSON.stringify(content, null, 2),\n  summary: `Session analyzed: ${extraction.frameworks_discussed.length} frameworks, ${extraction.breakthroughs.length} breakthroughs. Sprint #${sprint.sprint_number} generated with ${sprint.goals.length} goals.`,\n  tags: tags,\n  client_id: webhookData.client_id,\n  session_id: webhookData.session_id\n};"
+      },
+      "id": "prepare-perceptor-archive",
+      "name": "Prepare Perceptor Archive",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PERCEPTOR_API_URL }}/save",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $json.title, content: $json.content, summary: $json.summary, tags: $json.tags, projects: ['Rung'], source: 'n8n' }) }}",
+        "options": {
+          "timeout": 30000,
+          "allowUnauthorizedCerts": false
+        }
+      },
+      "id": "archive-to-perceptor",
+      "name": "Archive to Perceptor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2010, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL_RUNG }}",
+        "text": "",
+        "blocksUi": {
+          "blocksValues": [
+            {
+              "type": "header",
+              "text": {
+                "type": "plain_text",
+                "text": "Post-Session Processing Complete",
+                "emoji": true
+              }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Session:* {{ $('Webhook Trigger').item.json.body.session_id.slice(0, 8) }}...\n*Client:* {{ $('Webhook Trigger').item.json.body.client_id.slice(0, 8) }}..."
+              }
+            },
+            {
+              "type": "section",
+              "fields": [
+                {
+                  "type": "mrkdwn",
+                  "text": "*Frameworks:*\n{{ $('Get Framework Extraction').item.json.frameworks_discussed.join(', ') || 'None identified' }}"
+                },
+                {
+                  "type": "mrkdwn",
+                  "text": "*Modalities:*\n{{ $('Get Framework Extraction').item.json.modalities_used.join(', ') || 'None identified' }}"
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "fields": [
+                {
+                  "type": "mrkdwn",
+                  "text": "*Breakthroughs:*\n{{ $('Get Framework Extraction').item.json.breakthroughs.length || 0 }}"
+                },
+                {
+                  "type": "mrkdwn",
+                  "text": "*Sprint #:*\n{{ $('Generate Sprint Plan').item.json.sprint.sprint_number }}"
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Sprint Goals:*\n{{ $('Generate Sprint Plan').item.json.sprint.goals.map(g => '• ' + g.goal).join('\\n') }}"
+              }
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": "Archived to Perceptor: {{ $('Archive to Perceptor').item.json.id ? 'Yes' : 'No' }} | Processed at {{ new Date().toISOString() }}"
+                }
+              ]
+            }
+          ]
+        },
+        "otherOptions": {}
+      },
+      "id": "slack-notification",
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2230, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-rung",
+          "name": "Slack Rung"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build final response\nconst extraction = $('Get Framework Extraction').item.json;\nconst sprint = $('Generate Sprint Plan').item.json;\nconst perceptorResult = $('Archive to Perceptor').item.json;\nconst webhookData = $('Webhook Trigger').item.json.body;\n\nreturn {\n  status: 'completed',\n  session_id: webhookData.session_id,\n  client_id: webhookData.client_id,\n  extraction: {\n    frameworks_count: extraction.frameworks_discussed?.length || 0,\n    breakthroughs_count: extraction.breakthroughs?.length || 0,\n    frameworks: extraction.frameworks_discussed\n  },\n  sprint: {\n    id: sprint.sprint?.id,\n    number: sprint.sprint?.sprint_number,\n    goals_count: sprint.sprint?.goals?.length || 0,\n    exercises_count: sprint.sprint?.exercises?.length || 0\n  },\n  perceptor_archived: !!perceptorResult?.id,\n  processed_at: new Date().toISOString()\n};"
+      },
+      "id": "build-response",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2670, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: 'Processing failed', details: $json.message || 'Unknown error' }) }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1570, 480]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-notes-status",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-notes-status",
+      "name": "Check Notes Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 380]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Submit Notes for Processing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error: Invalid Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit Notes for Processing": {
+      "main": [
+        [
+          {
+            "node": "Check Notes Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Notes Status": {
+      "main": [
+        [
+          {
+            "node": "Get Framework Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Framework Extraction": {
+      "main": [
+        [
+          {
+            "node": "Get Sprint History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Sprint History": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sprint Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sprint Request": {
+      "main": [
+        [
+          {
+            "node": "Generate Sprint Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Sprint Plan": {
+      "main": [
+        [
+          {
+            "node": "Prepare Perceptor Archive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Perceptor Archive": {
+      "main": [
+        [
+          {
+            "node": "Archive to Perceptor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive to Perceptor": {
+      "main": [
+        [
+          {
+            "node": "Slack Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Notification": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "rung",
+      "id": "tag-rung"
+    },
+    {
+      "name": "post-session",
+      "id": "tag-post-session"
+    }
+  ],
+  "pinData": {},
+  "versionId": "1"
+}
