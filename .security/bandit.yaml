@@ -1,0 +1,53 @@
+# =============================================================================
+# Bandit Configuration for Rung
+# =============================================================================
+# Run: bandit -r src/ -c .security/bandit.yaml
+
+# Directories to exclude from scanning
+exclude_dirs:
+  - tests
+  - .venv
+  - venv
+  - __pycache__
+  - .git
+  - node_modules
+
+# Tests to skip (with justification in comments)
+skips:
+  # B101: assert_used - We use asserts for input validation in dev
+  # B104: hardcoded_bind_all_interfaces - Only in dev/test configs
+  # B311: random - Not used for security purposes
+  []
+
+# Severity threshold
+# Levels: all, low, medium, high
+severity: medium
+
+# Confidence threshold
+# Levels: all, low, medium, high
+confidence: high
+
+# Output format
+format: json
+
+# Aggregate output by vulnerability
+aggregate: vuln
+
+# Show line numbers
+number: 3
+
+# Verbose output
+verbose: false
+
+# Quiet mode (only show findings)
+quiet: false
+
+# Profile to use
+# Available: All, Asserts, BindAllInterfaces, etc.
+profile: null
+
+# Baseline file for ignoring known issues
+baseline: null
+
+# Include test IDs in output
+show_test_ids: true

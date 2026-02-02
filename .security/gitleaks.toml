@@ -1,0 +1,73 @@
+# =============================================================================
+# Gitleaks Configuration for Rung
+# =============================================================================
+# Run: gitleaks detect --source . --config .security/gitleaks.toml
+
+title = "Rung Secret Scanning Configuration"
+
+[extend]
+# Use the default gitleaks rules as a base
+useDefault = true
+
+# Additional custom rules for Rung
+[[rules]]
+id = "rung-api-key"
+description = "Rung API Key"
+regex = '''rung_api_key\s*[:=]\s*["']?([a-zA-Z0-9_-]{32,})["']?'''
+secretGroup = 1
+entropy = 3.5
+
+[[rules]]
+id = "aws-bedrock-key"
+description = "AWS Bedrock Key Pattern"
+regex = '''bedrock[_-]?key\s*[:=]\s*["']?([a-zA-Z0-9/+=]{40,})["']?'''
+secretGroup = 1
+
+[[rules]]
+id = "perplexity-api-key"
+description = "Perplexity API Key"
+regex = '''pplx-[a-zA-Z0-9]{48,}'''
+entropy = 4.0
+
+[[rules]]
+id = "slack-webhook"
+description = "Slack Webhook URL"
+regex = '''https://hooks\.slack\.com/services/[A-Z0-9]+/[A-Z0-9]+/[a-zA-Z0-9]+'''
+
+[[rules]]
+id = "database-url"
+description = "Database Connection String with Password"
+regex = '''postgres(ql)?://[^:]+:([^@]+)@'''
+secretGroup = 2
+
+# Paths to ignore
+[allowlist]
+paths = [
+    '''\.env\.example''',
+    '''\.security/.*\.md''',
+    '''docs/.*''',
+    '''tests/.*fixtures.*''',
+    '''.*_test\.py''',
+    '''test_.*\.py''',
+]
+
+# Specific strings to ignore (false positives)
+commits = []
+regexes = [
+    '''example[_-]?(api[_-]?)?key''',
+    '''test[_-]?(api[_-]?)?key''',
+    '''fake[_-]?(api[_-]?)?key''',
+    '''dummy[_-]?(api[_-]?)?key''',
+    '''xxx+''',
+    '''your[_-]?api[_-]?key''',
+]
+
+# Stop words that indicate test/example data
+stopwords = [
+    "example",
+    "test",
+    "fake",
+    "dummy",
+    "sample",
+    "placeholder",
+]

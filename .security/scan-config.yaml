@@ -1,0 +1,177 @@
+# =============================================================================
+# Rung Security Scanning Configuration
+# =============================================================================
+#
+# This file configures automated security scanning tools for the Rung project.
+# Scans should be run in CI/CD pipeline and locally before commits.
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# OWASP ZAP Configuration
+# -----------------------------------------------------------------------------
+# Run: docker run -t owasp/zap2docker-stable zap-baseline.py -t <target>
+zap:
+  enabled: true
+  target_url: "${API_GATEWAY_URL}"
+  scan_type: "baseline"  # baseline, full-scan, api-scan
+
+  # Rules to ignore (with justification)
+  ignored_rules:
+    - id: "10021"  # X-Content-Type-Options - handled by CloudFront
+    - id: "10038"  # Content Security Policy - API, not web page
+
+  # Authentication (if needed for authenticated scans)
+  auth:
+    type: "bearer"
+    token_env: "ZAP_AUTH_TOKEN"
+
+# -----------------------------------------------------------------------------
+# Dependency Vulnerability Scanning
+# -----------------------------------------------------------------------------
+# Tools: pip-audit, safety, snyk
+dependency_scanning:
+  enabled: true
+
+  python:
+    tool: "pip-audit"
+    # pip-audit --requirement requirements.txt --format json
+    severity_threshold: "high"  # fail on high/critical
+    ignore:
+      # Add CVEs to ignore with justification
+      # - CVE-2024-XXXXX: Not exploitable in our context because...
+      []
+
+  terraform:
+    tool: "tfsec"
+    # tfsec terraform/
+    severity_threshold: "high"
+    ignore:
+      # Add rules to ignore with justification
+      - rule: "aws-s3-enable-bucket-logging"
+        reason: "Logging handled by CloudTrail"
+
+# -----------------------------------------------------------------------------
+# Secret Scanning
+# -----------------------------------------------------------------------------
+# Tools: gitleaks, trufflehog, detect-secrets
+secret_scanning:
+  enabled: true
+  tool: "gitleaks"
+
+  # Run: gitleaks detect --source . --config .security/gitleaks.toml
+  config_file: ".security/gitleaks.toml"
+
+  # Pre-commit hook enabled
+  pre_commit: true
+
+  # Baseline file for known false positives
+  baseline_file: ".security/secrets-baseline.json"
+
+# -----------------------------------------------------------------------------
+# Static Application Security Testing (SAST)
+# -----------------------------------------------------------------------------
+# Tools: bandit (Python), semgrep
+sast:
+  enabled: true
+
+  python:
+    tool: "bandit"
+    # bandit -r src/ -f json
+    config: ".security/bandit.yaml"
+    severity_threshold: "medium"
+    confidence_threshold: "high"
+    exclude:
+      - "tests/"
+      - "**/test_*.py"
+
+  general:
+    tool: "semgrep"
+    # semgrep --config auto src/
+    rulesets:
+      - "p/security-audit"
+      - "p/python"
+      - "p/owasp-top-ten"
+
+# -----------------------------------------------------------------------------
+# Infrastructure Security Scanning
+# -----------------------------------------------------------------------------
+# Tools: checkov, tfsec
+infrastructure_scanning:
+  enabled: true
+
+  terraform:
+    tool: "checkov"
+    # checkov -d terraform/ --framework terraform
+    skip_checks:
+      # Add checks to skip with justification
+      - CKV_AWS_144  # S3 cross-region replication - single region deployment
+
+    external_checks: []
+
+# -----------------------------------------------------------------------------
+# Container Security (if applicable)
+# -----------------------------------------------------------------------------
+container_scanning:
+  enabled: false  # Enable when containers are used
+  tool: "trivy"
+  # trivy image <image-name>
+  severity_threshold: "high"
+
+# -----------------------------------------------------------------------------
+# CI/CD Integration
+# -----------------------------------------------------------------------------
+ci_integration:
+  # GitHub Actions workflow location
+  workflow: ".github/workflows/security-scan.yml"
+
+  # When to run scans
+  triggers:
+    - "pull_request"
+    - "push:main"
+    - "schedule:weekly"
+
+  # Fail build on findings
+  fail_on:
+    dependency_critical: true
+    dependency_high: true
+    secret_any: true
+    sast_high: true
+    infra_high: true
+
+# -----------------------------------------------------------------------------
+# Reporting
+# -----------------------------------------------------------------------------
+reporting:
+  # Output formats
+  formats:
+    - "json"
+    - "html"
+    - "sarif"  # For GitHub Security tab
+
+  # Output directory
+  output_dir: "security-reports/"
+
+  # Notification channels
+  notifications:
+    slack:
+      enabled: true
+      webhook_env: "SLACK_SECURITY_WEBHOOK"
+      on_findings: ["critical", "high"]
+
+    email:
+      enabled: false
+      recipients: []
+
+# -----------------------------------------------------------------------------
+# Scan Schedule
+# -----------------------------------------------------------------------------
+schedule:
+  # Daily dependency scans
+  dependency: "0 6 * * *"  # 6 AM daily
+
+  # Weekly full scans
+  full: "0 2 * * 0"  # 2 AM Sunday
+
+  # Pre-release scans (manual trigger)
+  pre_release: "manual"
