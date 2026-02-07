@@ -32,11 +32,14 @@ Agents do NOT replace clinical judgment - they augment it by:
 
 | Component | Technology | Notes |
 |-----------|------------|-------|
-| LLM | AWS Bedrock (Claude) | HIPAA BAA required |
-| Orchestration | n8n (self-hosted EC2) | In VPC for HIPAA |
-| Database | RDS PostgreSQL | Encrypted, Multi-AZ |
-| Storage | S3 | Client-side encryption |
-| Context | Perceptor MCP | Longitudinal tracking |
+| LLM | AWS Bedrock (Claude 3.5 Sonnet) | HIPAA BAA required |
+| Orchestration | Python async pipelines | `src/pipelines/` |
+| API | FastAPI + Pydantic | Type-safe validation |
+| Deployment | ECS Fargate | Docker container |
+| Database | RDS PostgreSQL + Alembic | Encrypted, migrations |
+| Storage | S3 (SSE-KMS) | Server-side encryption |
+| Encryption | KMS envelope encryption | `src/services/encryption.py` |
+| Audit | Centralized service | `src/services/audit.py` |
 | Research | Perplexity Labs | Anonymized queries only |
 | Auth | AWS Cognito | MFA mandatory |
 
@@ -55,10 +58,12 @@ Agents do NOT replace clinical judgment - they augment it by:
 See `decisions.log` for full ADRs. Key decisions:
 
 1. **ADR-001**: Bedrock over direct Anthropic API (HIPAA BAA)
-2. **ADR-002**: Self-hosted n8n (HIPAA coverage)
+2. **ADR-002**: Self-hosted n8n (HIPAA coverage) → **SUPERSEDED by ADR-011**
 3. **ADR-003**: Agent isolation via separate Bedrock calls
 4. **ADR-004**: Couples merge at framework-level only
 5. **ADR-005**: Perplexity with mandatory anonymization
+6. **ADR-006**: Three-layer encryption (Transport, At-rest, Field-level)
+7. **ADR-011**: Consolidate to FastAPI + ECS Fargate (replaces n8n)
 
 ## Development Patterns
 
@@ -91,16 +96,33 @@ Output: Structured JSON with frameworks, patterns, recommendations
 
 ```
 ~/projects/Rung/
-├── README.md           # Quick start and overview
-├── CLAUDE.md           # This file - project context
-├── AGENTS.md           # Build/run/test instructions
-├── BLUEPRINT.md        # Phase tracking with checkboxes
-├── decisions.log       # Architectural decision records
-├── ARCHITECTURE.md     # Full technical specification
-├── src/                # Source code (TBD)
-├── tests/              # Test suites (TBD)
-├── terraform/          # Infrastructure as code (TBD)
-└── n8n/                # Workflow exports (TBD)
+├── README.md                # Quick start and overview
+├── CLAUDE.md                # This file - project context
+├── AGENTS.md                # Build/run/test instructions
+├── BLUEPRINT.md             # Phase tracking with checkboxes
+├── decisions.log            # Architectural decision records
+├── ARCHITECTURE.md          # Full technical specification
+├── Makefile                 # Build/deploy commands
+├── Dockerfile               # Container definition
+├── requirements.txt         # Python dependencies
+├── alembic.ini              # Database migrations config
+├── src/
+│   ├── api/                 # FastAPI endpoints
+│   ├── pipelines/           # Async workflow orchestration
+│   ├── agents/              # Rung + Beth agents
+│   ├── services/            # Encryption, audit, analytics, etc.
+│   ├── models/              # SQLAlchemy models
+│   └── db/
+│       └── alembic/         # Database migrations
+├── tests/                   # Pytest test suites
+│   ├── unit/
+│   ├── integration/
+│   ├── e2e/
+│   └── security/
+├── terraform/
+│   ├── modules/ecs/         # ECS Fargate infrastructure
+│   └── environments/dev/    # Dev environment config
+└── n8n.deprecated/          # Old n8n workflows (reference only)
 ```
 
 ## Field Test Phases

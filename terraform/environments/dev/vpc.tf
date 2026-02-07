@@ -136,19 +136,16 @@ output "nat_gateway_ips" {
   value       = module.vpc.nat_gateway_public_ips
 }
 
+# DEPRECATED: Lambda has been replaced by FastAPI + ECS.
+# This output is retained until the VPC module removes the Lambda security group.
 output "lambda_security_group_id" {
-  description = "Lambda security group ID"
+  description = "DEPRECATED - Lambda security group ID (Lambda replaced by ECS)"
   value       = module.vpc.lambda_security_group_id
 }
 
 output "rds_security_group_id" {
   description = "RDS security group ID"
   value       = module.vpc.rds_security_group_id
-}
-
-output "n8n_security_group_id" {
-  description = "n8n security group ID"
-  value       = module.vpc.n8n_security_group_id
 }
 
 output "s3_vpc_endpoint_id" {

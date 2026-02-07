@@ -1,10 +1,33 @@
 # Rung - Psychology Agent Orchestration System
 ## Backend Architecture Design Document
 
-**Version**: 1.0.0
-**Date**: 2026-01-31
-**Status**: Design Phase
+**Version**: 2.0.0
+**Date**: 2026-02-06
+**Status**: Implementation Complete (Pre-Production)
 **Author**: Backend Architect
+
+---
+
+## ⚠️ Architecture Update Notice
+
+**Major Consolidation (ADR-011)**: The original architecture design specified n8n workflows for orchestration. During implementation, the architecture was consolidated to **Python async pipelines running on ECS Fargate**. This document contains outdated references to n8n workflows.
+
+**Current Architecture**:
+- Orchestration: Python async pipelines (`src/pipelines/`)
+- Deployment: ECS Fargate (Docker container)
+- API: FastAPI with Pydantic validation
+- See `decisions.log` ADR-011 for full rationale
+
+**Documentation Status**:
+- ✅ Sections 1-5: Updated with current architecture
+- ⚠️ Section 6 (formerly "n8n Workflow Architecture"): Contains outdated n8n workflow diagrams - refer to `PIPELINE_SECTION.md` or `src/pipelines/` source code for current implementation
+- ✅ Sections 7-9: Updated where applicable
+
+For current pipeline implementation details, see:
+- `src/pipelines/pre_session.py` - Pre-session pipeline
+- `src/pipelines/post_session.py` - Post-session pipeline
+- `src/pipelines/couples_merge.py` - Couples merge pipeline
+- `BLUEPRINT.md` - Current implementation status
 
 ---
 
@@ -13,9 +36,9 @@
 1. [Executive Summary](#executive-summary)
 2. [System Overview](#system-overview)
 3. [Service Architecture](#service-architecture)
-4. [Data Models](#data-models)
-5. [API Specifications](#api-specifications)
-6. [n8n Workflow Architecture](#n8n-workflow-architecture)
+4. [Pipeline Orchestration](#pipeline-orchestration)
+5. [Data Models](#data-models)
+6. [API Specifications](#api-specifications)
 7. [Security Architecture](#security-architecture)
 8. [Infrastructure Components](#infrastructure-components)
 9. [Implementation Phases](#implementation-phases)
@@ -32,16 +55,21 @@ Rung is a HIPAA-compliant multi-agent system designed to augment therapy session
 - **Pre-Session Pipeline**: Voice memo to actionable clinical briefs and client guides
 - **Post-Session Pipeline**: Session notes to development sprint plans
 - **Couples Merge**: Framework-level synthesis without cross-client data exposure
+- **Progress Analytics**: Longitudinal tracking of client development trajectories
 - **HIPAA Compliance**: End-to-end encryption, audit logging, BAA-covered services only
 
-### Technical Constraints
+### Technical Stack
 
-| Constraint | Implementation |
-|------------|----------------|
-| LLM Provider | AWS Bedrock (Claude) - HIPAA BAA |
-| Orchestration | n8n Cloud (self-hosted with BAA) |
-| Storage | S3 (encrypted) + RDS PostgreSQL |
-| Context Persistence | Perceptor MCP |
+| Component | Implementation |
+|-----------|----------------|
+| LLM Provider | AWS Bedrock (Claude 3.5 Sonnet) - HIPAA BAA |
+| Orchestration | Python async pipelines (`src/pipelines/`) |
+| API Layer | FastAPI with Pydantic validation |
+| Deployment | ECS Fargate with Docker |
+| Database | RDS PostgreSQL with Alembic migrations |
+| Storage | S3 (SSE-KMS encryption) |
+| Encryption | KMS envelope encryption (`src/services/encryption.py`) |
+| Audit | Centralized audit service (`src/services/audit.py`) |
 | Research API | Perplexity Labs (anonymized queries only) |
 | Notifications | Slack (workflow status only, no PHI) |
 
@@ -49,66 +77,77 @@ Rung is a HIPAA-compliant multi-agent system designed to augment therapy session
 
 ## System Overview
 
-### Architecture Diagram (Text-Based)
+### Architecture Diagram
 
 ```
-+-----------------------------------------------------------------------------------+
-|                              RUNG SYSTEM BOUNDARY                                  |
-+-----------------------------------------------------------------------------------+
-|                                                                                   |
-|  +-----------+     +------------------+     +------------------+                  |
-|  |  Client   |---->|   API Gateway    |---->|  Auth Service    |                  |
-|  | (Therapist)|    |  (AWS API GW)    |     | (Cognito + JWT)  |                  |
-|  +-----------+     +------------------+     +------------------+                  |
-|                            |                        |                             |
-|                            v                        v                             |
-|  +------------------------------------------------------------------------+      |
-|  |                         n8n ORCHESTRATION LAYER                         |      |
-|  |  +---------------+  +------------------+  +------------------+          |      |
-|  |  | Pre-Session   |  | Post-Session     |  | Couples Merge    |          |      |
-|  |  | Workflow      |  | Workflow         |  | Workflow         |          |      |
-|  |  +-------+-------+  +--------+---------+  +--------+---------+          |      |
-|  |          |                   |                     |                    |      |
-|  +----------|-------------------|---------------------|--------------------+      |
-|             |                   |                     |                           |
-|             v                   v                     v                           |
-|  +------------------------------------------------------------------------+      |
-|  |                         AGENT ISOLATION LAYER                           |      |
-|  |  +-----------------------------+  +-----------------------------+       |      |
-|  |  |      RUNG AGENT CONTEXT     |  |      BETH AGENT CONTEXT     |       |      |
-|  |  |  (Clinical Analysis)        |  |  (Client Communication)     |       |      |
-|  |  |  +-----------------------+  |  |  +-----------------------+  |       |      |
-|  |  |  | - Framework Extraction|  |  |  | - Language Adaptation |  |       |      |
-|  |  |  | - Pattern Analysis    |  |  |  | - Psychoeducation    |  |       |      |
-|  |  |  | - Clinical Scoring    |  |  |  | - Exercise Design    |  |       |      |
-|  |  |  | - Risk Assessment     |  |  |  | - Progress Tracking  |  |       |      |
-|  |  |  +-----------------------+  |  |  +-----------------------+  |       |      |
-|  |  +-------------+---------------+  +---------------+-------------+       |      |
-|  |                |                                  |                     |      |
-|  |                |      FIREWALL (No PHI Cross)     |                     |      |
-|  |                +----------------------------------+                     |      |
-|  +------------------------------------------------------------------------+      |
-|                    |                   |                   |                      |
-|                    v                   v                   v                      |
-|  +------------------------------------------------------------------------+      |
-|  |                         SERVICE LAYER                                   |      |
-|  |  +-------------+  +-------------+  +-------------+  +-------------+    |      |
-|  |  | Transcribe  |  | Bedrock     |  | Perplexity  |  | Perceptor   |    |      |
-|  |  | Service     |  | LLM Service |  | Research    |  | Context     |    |      |
-|  |  | (AWS)       |  | (Claude)    |  | Service     |  | MCP         |    |      |
-|  |  +-------------+  +-------------+  +-------------+  +-------------+    |      |
-|  +------------------------------------------------------------------------+      |
-|                    |                   |                   |                      |
-|                    v                   v                   v                      |
-|  +------------------------------------------------------------------------+      |
-|  |                         DATA LAYER                                      |      |
-|  |  +--------------------+  +--------------------+  +------------------+   |      |
-|  |  |    RDS PostgreSQL  |  |    S3 Encrypted    |  |   Perceptor     |   |      |
-|  |  |    (Structured)    |  |    (Voice/Files)   |  |   (Contexts)    |   |      |
-|  |  +--------------------+  +--------------------+  +------------------+   |      |
-|  +------------------------------------------------------------------------+      |
-|                                                                                   |
-+-----------------------------------------------------------------------------------+
++---------------------------------------------------------------------------------+
+|                           RUNG SYSTEM BOUNDARY                                  |
++---------------------------------------------------------------------------------+
+|                                                                                 |
+|  +-----------+          +------------------+          +------------------+     |
+|  |  Client   |--------->|   ALB (HTTPS)    |--------->|   ECS Fargate    |     |
+|  | (Therapist)          |  (SSL Termination|          |   (FastAPI)      |     |
+|  +-----------+          +------------------+          +------------------+     |
+|                                                               |                 |
+|                                                               v                 |
+|  +-----------------------------------------------------------------------+     |
+|  |                          FASTAPI APPLICATION                           |     |
+|  |                                                                        |     |
+|  |  +-------------------+     +-------------------+     +---------------+|     |
+|  |  |  API Endpoints    |     | Pipeline Orchestr.|     | Auth Middleware||     |
+|  |  |  (src/api/)       |     | (src/pipelines/)  |     | (Cognito JWT)  ||     |
+|  |  +-------------------+     +-------------------+     +---------------+|     |
+|  |                                                                        |     |
+|  |  Pipelines:                                                           |     |
+|  |  - pre_session.py      → Voice memo → Clinical brief + Client guide   |     |
+|  |  - post_session.py     → Session notes → Development plan             |     |
+|  |  - couples_merge.py    → Framework-level partner insights             |     |
+|  +-----------------------------------------------------------------------+     |
+|                                     |                                           |
+|                                     v                                           |
+|  +-----------------------------------------------------------------------+     |
+|  |                        AGENT ISOLATION LAYER                           |     |
+|  |  +-----------------------------+    +-----------------------------+    |     |
+|  |  |      RUNG AGENT CONTEXT     |    |      BETH AGENT CONTEXT     |    |     |
+|  |  |  (Clinical Analysis)        |    |  (Client Communication)     |    |     |
+|  |  |  +-----------------------+  |    |  +-----------------------+  |    |     |
+|  |  |  | - Framework Extraction|  |    |  | - Language Adaptation |  |    |     |
+|  |  |  | - Pattern Analysis    |  |    |  | - Psychoeducation    |  |    |     |
+|  |  |  | - Clinical Scoring    |  |    |  | - Exercise Design    |  |    |     |
+|  |  |  | - Risk Assessment     |  |    |  | - Progress Tracking  |  |    |     |
+|  |  |  +-----------------------+  |    |  +-----------------------+  |    |     |
+|  |  +-------------+---------------+    +---------------+-------------+    |     |
+|  |                |                                    |                  |     |
+|  |                |     FIREWALL (No PHI Cross)        |                  |     |
+|  |                +------------------------------------+                  |     |
+|  +-----------------------------------------------------------------------+     |
+|                                     |                                           |
+|                                     v                                           |
+|  +-----------------------------------------------------------------------+     |
+|  |                           SERVICE LAYER                                |     |
+|  |  +--------------+  +--------------+  +--------------+  +------------+ |     |
+|  |  | Encryption   |  | Audit        |  | Bedrock      |  | Perplexity | |     |
+|  |  | (KMS)        |  | Service      |  | LLM Client   |  | Research   | |     |
+|  |  +--------------+  +--------------+  +--------------+  +------------+ |     |
+|  |                                                                        |     |
+|  |  +--------------+  +--------------+  +--------------+  +------------+ |     |
+|  |  | Progress     |  | Transcribe   |  | Framework    |  | Sprint     | |     |
+|  |  | Analytics    |  | Service      |  | Extractor    |  | Planner    | |     |
+|  |  +--------------+  +--------------+  +--------------+  +------------+ |     |
+|  +-----------------------------------------------------------------------+     |
+|                                     |                                           |
+|                                     v                                           |
+|  +-----------------------------------------------------------------------+     |
+|  |                           DATA LAYER                                   |     |
+|  |  +----------------------+  +----------------------+                    |     |
+|  |  |  RDS PostgreSQL      |  |    S3 (SSE-KMS)      |                    |     |
+|  |  |  - Structured data   |  |  - Voice memos       |                    |     |
+|  |  |  - Alembic migrations|  |  - Transcripts       |                    |     |
+|  |  |  - Field encryption  |  |  - Exports           |                    |     |
+|  |  +----------------------+  +----------------------+                    |     |
+|  +-----------------------------------------------------------------------+     |
+|                                                                                 |
++---------------------------------------------------------------------------------+
                                         |
                                         v
                               +-------------------+
@@ -121,18 +160,21 @@ Rung is a HIPAA-compliant multi-agent system designed to augment therapy session
 
 | Component | Responsibility | HIPAA Role |
 |-----------|---------------|------------|
-| API Gateway | Request routing, rate limiting, auth validation | Access Control |
-| Auth Service | JWT validation, therapist identity, session mgmt | Authentication |
-| n8n Orchestration | Workflow execution, step sequencing | Processing |
+| ALB | HTTPS termination, request routing to ECS | Access Control |
+| ECS Fargate | Container orchestration, auto-scaling | Compute |
+| FastAPI | API routing, validation, auth middleware | Access Control |
+| Pipeline Orchestration | Async workflow execution (pre/post/couples) | Processing |
 | Agent Isolation Layer | Context separation, agent routing | Data Segregation |
 | Rung Agent | Clinical analysis, framework extraction | Processing |
 | Beth Agent | Client-facing content generation | Processing |
+| Encryption Service | KMS envelope encryption for PHI fields | Security |
+| Audit Service | Centralized HIPAA-compliant audit logging | Compliance |
 | Transcribe Service | Voice-to-text conversion | Processing |
-| Bedrock LLM Service | AI inference (Claude) | Processing |
+| Bedrock LLM Service | AI inference (Claude 3.5 Sonnet) | Processing |
 | Perplexity Research | Evidence-based framework lookup | Processing |
-| Perceptor MCP | Longitudinal context persistence | Storage |
-| RDS PostgreSQL | Structured data (clients, sessions, briefs) | Storage |
-| S3 Encrypted | Binary storage (voice memos, exports) | Storage |
+| Progress Analytics | Longitudinal development tracking | Processing |
+| RDS PostgreSQL | Structured data with Alembic migrations | Storage |
+| S3 Encrypted | Binary storage (voice memos, transcripts) | Storage |
 
 ---
 
@@ -144,26 +186,28 @@ Rung is a HIPAA-compliant multi-agent system designed to augment therapy session
 ```
 Domain: Request routing and access control
 Bounded Context: Authentication & Authorization
-Technology: AWS API Gateway + Lambda Authorizer
+Technology: ALB + ECS Fargate + FastAPI
 
 Responsibilities:
-- JWT validation
+- HTTPS termination (ALB)
+- JWT validation (FastAPI middleware)
 - Rate limiting (100 req/min per therapist)
 - Request logging (no PHI in logs)
-- Route to appropriate n8n webhook
+- Route to FastAPI endpoints
 ```
 
-#### 2. Orchestration Service (n8n)
+#### 2. Pipeline Orchestration Service
 ```
 Domain: Workflow execution
 Bounded Context: Process Management
-Technology: n8n Cloud (self-hosted)
+Technology: Python async pipelines (src/pipelines/)
 
 Responsibilities:
-- Workflow triggering
-- Step sequencing
-- Error handling and retry
-- Slack notifications
+- Async workflow execution (pre_session, post_session, couples_merge)
+- Step sequencing with error handling
+- Service coordination (Bedrock, S3, RDS, Perplexity)
+- Status tracking and logging
+- Slack notifications on completion/failure
 ```
 
 #### 3. Agent Service
@@ -1540,9 +1584,21 @@ components:
 
 ---
 
-## n8n Workflow Architecture
+## Pipeline Orchestration
 
-### Pre-Session Workflow
+### Overview
+
+All workflow orchestration is implemented as Python async pipelines in `src/pipelines/`. Pipelines coordinate service calls, handle errors, track status, and provide structured logging for debugging.
+
+**Architecture Benefits:**
+- Single language (Python) for all security-critical code
+- Type safety with Pydantic models
+- Async execution for concurrent operations
+- Centralized error handling and retry logic
+- Structured logging for audit and debugging
+- Direct service integration (no HTTP abstraction layer)
+
+### Pre-Session Pipeline
 
 ```
 Workflow: pre_session_pipeline

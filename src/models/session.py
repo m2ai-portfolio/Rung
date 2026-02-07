@@ -8,7 +8,7 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Column, DateTime, Enum as SQLEnum, ForeignKey, LargeBinary
+from sqlalchemy import Column, DateTime, Enum as SQLEnum, ForeignKey, LargeBinary, String
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
 
@@ -48,6 +48,7 @@ class Session(Base):
     session_date = Column(DateTime(timezone=True), nullable=False)
     status = Column(SQLEnum(SessionStatus), nullable=False, default=SessionStatus.SCHEDULED)
     notes_encrypted = Column(LargeBinary, nullable=True)  # PHI
+    transcript_s3_key = Column(String, nullable=True)  # S3 key for session transcript
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -56,6 +57,7 @@ class Session(Base):
     clinical_briefs = relationship("ClinicalBrief", back_populates="session")
     client_guides = relationship("ClientGuide", back_populates="session")
     framework_merges = relationship("FrameworkMerge", back_populates="session")
+    pipeline_runs = relationship("PipelineRun", back_populates="session")
 
     def __repr__(self) -> str:
         return f"<Session(id={self.id}, client_id={self.client_id}, status={self.status})>"
@@ -76,6 +78,7 @@ class SessionBase(BaseModel):
 class SessionCreate(SessionBase):
     """Schema for creating a new session."""
     notes: Optional[str] = Field(None, description="Session notes (will be encrypted)")
+    transcript_s3_key: Optional[str] = Field(None, description="S3 key for session transcript")
 
 
 class SessionUpdate(BaseModel):
@@ -84,6 +87,7 @@ class SessionUpdate(BaseModel):
     session_date: Optional[datetime] = None
     status: Optional[SessionStatus] = None
     notes: Optional[str] = Field(None, description="Session notes (will be encrypted)")
+    transcript_s3_key: Optional[str] = Field(None, description="S3 key for session transcript")
 
 
 class SessionRead(SessionBase):
@@ -92,5 +96,6 @@ class SessionRead(SessionBase):
 
     id: UUID
     notes: Optional[str] = Field(None, description="Decrypted notes (if authorized)")
+    transcript_s3_key: Optional[str] = Field(None, description="S3 key for session transcript")
     created_at: datetime
     updated_at: datetime

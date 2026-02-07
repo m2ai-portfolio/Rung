@@ -1,6 +1,13 @@
 """
 Voice Upload Lambda Handler
 
+DEPRECATED: This Lambda handler has been superseded by the FastAPI + ECS stack.
+Voice upload functionality is now handled by src/api/voice_memo.py running on ECS.
+This file is retained because tests/voice/test_voice_processing.py imports from it.
+Remove this file once those tests are migrated to test the FastAPI endpoints instead.
+See: src/api/voice_memo.py for the replacement implementation.
+
+Original description:
 Handles voice memo uploads via API Gateway/Lambda integration.
 Validates input, uploads to S3, and triggers transcription.
 """

@@ -12,11 +12,12 @@ import os
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from src.services.encryption import DevEncryptor, FieldEncryptor, get_encryptor
 from src.services.framework_extractor import (
     FrameworkExtractor,
     FrameworkExtractionOutput,
@@ -65,16 +66,20 @@ class NotesProcessor:
         self,
         framework_extractor: Optional[FrameworkExtractor] = None,
         kms_key_id: Optional[str] = None,
+        encryptor: Optional[Union[FieldEncryptor, DevEncryptor]] = None,
     ):
         """
         Initialize notes processor.
 
         Args:
             framework_extractor: Optional pre-configured extractor
-            kms_key_id: KMS key ID for encryption
+            kms_key_id: KMS key ID for encryption (legacy, prefer encryptor)
+            encryptor: Encryption service for PHI field encryption.
+                       Falls back to get_encryptor() if not provided.
         """
         self.extractor = framework_extractor or FrameworkExtractor()
         self.kms_key_id = kms_key_id or os.environ.get("FIELD_ENCRYPTION_KEY_ID")
+        self.encryptor = encryptor or get_encryptor()
 
     def process(self, input_data: NotesInput) -> NotesProcessingResult:
         """
@@ -139,38 +144,47 @@ class NotesProcessor:
         except ValueError as e:
             raise NotesProcessorError(f"Invalid UUID: {str(e)}")
 
-    def encrypt_notes(self, notes: str) -> bytes:
+    def encrypt_notes(
+        self,
+        notes: str,
+        context: Optional[dict[str, str]] = None,
+    ) -> bytes:
         """
-        Encrypt notes using KMS.
+        Encrypt notes using envelope encryption.
 
         Args:
             notes: Plain text notes
+            context: Optional encryption context binding the data key
+                     to an entity (e.g. therapist/client IDs).
+                     Defaults to an empty context.
 
         Returns:
-            Encrypted bytes
-
-        Note: This is a placeholder. Real implementation would use
-        AWS KMS or field-level encryption.
+            Encrypted bytes (wire format from the configured encryptor)
         """
-        # Placeholder for encryption
-        # In production: Use KMS client to encrypt
-        return notes.encode("utf-8")
+        ctx = context or {}
+        return self.encryptor.encrypt(notes, ctx)
 
-    def decrypt_notes(self, encrypted: bytes) -> str:
+    def decrypt_notes(
+        self,
+        encrypted: bytes,
+        context: Optional[dict[str, str]] = None,
+    ) -> str:
         """
-        Decrypt notes using KMS.
+        Decrypt notes previously encrypted by :meth:`encrypt_notes`.
 
         Args:
-            encrypted: Encrypted bytes
+            encrypted: Encrypted bytes from encrypt_notes()
+            context: Must match the encryption context used during encrypt().
+                     Defaults to an empty context.
 
         Returns:
             Plain text notes
 
-        Note: This is a placeholder. Real implementation would use
-        AWS KMS or field-level encryption.
+        Raises:
+            ValueError: If the context does not match or data is corrupt.
         """
-        # Placeholder for decryption
-        return encrypted.decode("utf-8")
+        ctx = context or {}
+        return self.encryptor.decrypt(encrypted, ctx)
 
     def prepare_for_storage(
         self,

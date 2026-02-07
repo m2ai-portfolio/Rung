@@ -11,7 +11,10 @@ from src.models.client_guide import ClientGuide, ClientGuideCreate, ClientGuideR
 from src.models.development_plan import DevelopmentPlan, DevelopmentPlanCreate, DevelopmentPlanRead, DevelopmentPlanUpdate
 from src.models.couple_link import CoupleLink, CoupleLinkCreate, CoupleLinkRead, CoupleLinkUpdate, CoupleStatus
 from src.models.framework_merge import FrameworkMerge, FrameworkMergeCreate, FrameworkMergeRead
+from src.models.session_extraction import SessionExtraction, SessionExtractionCreate, SessionExtractionRead
 from src.models.audit_log import AuditLog, AuditLogCreate, AuditLogRead
+from src.models.pipeline_run import PipelineRun, PipelineRunCreate, PipelineRunRead, PipelineRunUpdate, PipelineType, PipelineStatus
+from src.models.progress_metric import ProgressMetric, ProgressMetricCreate, ProgressMetricRead, MetricType
 
 __all__ = [
     # Base
@@ -66,8 +69,24 @@ __all__ = [
     "FrameworkMerge",
     "FrameworkMergeCreate",
     "FrameworkMergeRead",
+    # Session Extraction
+    "SessionExtraction",
+    "SessionExtractionCreate",
+    "SessionExtractionRead",
     # Audit Log
     "AuditLog",
     "AuditLogCreate",
     "AuditLogRead",
+    # Pipeline Run
+    "PipelineRun",
+    "PipelineRunCreate",
+    "PipelineRunRead",
+    "PipelineRunUpdate",
+    "PipelineType",
+    "PipelineStatus",
+    # Progress Metric
+    "ProgressMetric",
+    "ProgressMetricCreate",
+    "ProgressMetricRead",
+    "MetricType",
 ]

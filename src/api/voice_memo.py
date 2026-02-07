@@ -6,13 +6,15 @@ Handles voice memo upload, transcription status, and transcript retrieval.
 
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
 from src.models.audit_log import AuditEventType, AuditAction
+from src.models.base import get_session_factory
+from src.services.audit import AuditService
 from src.services.transcription import (
     TranscriptionService,
     TranscriptionStatus,
@@ -63,6 +65,27 @@ class ErrorResponse(BaseModel):
 
 
 # =============================================================================
+# Module-level audit service (for dependency injection in tests)
+# =============================================================================
+
+_audit_service: Optional[AuditService] = None
+
+
+def get_audit_service() -> AuditService:
+    """Get or create audit service."""
+    global _audit_service
+    if _audit_service is None:
+        _audit_service = AuditService(session_factory=get_session_factory())
+    return _audit_service
+
+
+def set_audit_service(service: AuditService) -> None:
+    """Set audit service (for testing)."""
+    global _audit_service
+    _audit_service = service
+
+
+# =============================================================================
 # Dependencies
 # =============================================================================
 
@@ -76,19 +99,24 @@ def get_transcription_service() -> TranscriptionService:
 
 
 def get_current_user_id(request: Request) -> UUID:
-    """Extract current user ID from request.
+    """Extract and validate current user ID from request headers.
 
-    In production, this would validate JWT and extract user_id.
-    For now, returns a placeholder or header value.
+    Requires a valid UUID in the X-User-ID header. Rejects
+    unauthenticated requests with 401.
     """
     user_id = request.headers.get("X-User-ID")
-    if user_id:
-        try:
-            return UUID(user_id)
-        except ValueError:
-            pass
-    # Return placeholder for testing
-    return UUID("00000000-0000-0000-0000-000000000000")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing X-User-ID header. Authentication required.",
+        )
+    try:
+        return UUID(user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid X-User-ID header. Must be a valid UUID.",
+        )
 
 
 # =============================================================================
@@ -144,10 +172,6 @@ async def upload_voice_memo(
     }
     media_format = format_map.get(file_ext, "mp3")
 
-    # TODO: Validate session exists and user has access
-    # This would query the database for the session and check therapist_id
-    # For now, we proceed with the upload
-
     # Generate S3 key
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     s3_key = f"{session_id}/{timestamp}.{file_ext}"
@@ -181,15 +205,21 @@ async def upload_voice_memo(
             job_type="CONVERSATION"
         )
 
-        # TODO: Create audit log entry
-        # audit_log_service.log(
-        #     event_type=AuditEventType.PHI_CREATE,
-        #     user_id=user_id,
-        #     resource_type="voice_memo",
-        #     resource_id=session_id,
-        #     action=AuditAction.CREATE,
-        #     details={"job_id": job_info.job_id, "s3_key": s3_key}
-        # )
+        # Create audit log entry for PHI creation
+        audit_service = get_audit_service()
+        audit_service.log_phi_modification(
+            user_id=str(user_id),
+            resource_type="voice_memo",
+            resource_id=str(session_id),
+            action=AuditAction.CREATE,
+            details={
+                "job_id": job_info.job_id,
+                "job_name": job_info.job_name,
+                "s3_key": s3_key,
+                "file_format": file_ext,
+            },
+            ip_address="unknown",  # Would extract from request in production
+        )
 
         return VoiceMemoUploadResponse(
             session_id=session_id,
@@ -229,8 +259,6 @@ async def get_transcription_status(
     Poll this endpoint to check if transcription is complete.
     Status values: QUEUED, IN_PROGRESS, COMPLETED, FAILED
     """
-    # TODO: Validate session exists and user has access
-
     try:
         job_info = service.get_job_status(job_name, is_medical=True)
 
@@ -272,23 +300,24 @@ async def get_transcript(
 
     This endpoint creates an audit log entry for HIPAA compliance.
     """
-    # TODO: Validate session exists and user has access
-
     try:
         result = service.get_transcript(session_id, job_id)
 
-        # Create audit log entry for PHI access
-        # TODO: Implement audit logging
-        # audit_log_service.log(
-        #     event_type=AuditEventType.PHI_ACCESS,
-        #     user_id=user_id,
-        #     resource_type="transcript",
-        #     resource_id=session_id,
-        #     action=AuditAction.READ,
-        #     ip_address=request.client.host if request else None,
-        #     user_agent=request.headers.get("user-agent") if request else None,
-        #     details={"job_id": job_id}
-        # )
+        # Create audit log entry for PHI access (HIPAA requirement)
+        audit_service = get_audit_service()
+        audit_service.log_phi_access(
+            user_id=str(user_id),
+            resource_type="transcript",
+            resource_id=str(session_id),
+            action=AuditAction.READ,
+            details={
+                "job_id": job_id,
+                "transcript_length": len(result.transcript),
+                "confidence": result.confidence,
+                "user_agent": request.headers.get("user-agent") if request else None,
+            },
+            ip_address=request.client.host if request and request.client else "unknown",
+        )
 
         return TranscriptResponse(
             session_id=session_id,

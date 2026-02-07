@@ -7,12 +7,16 @@ Provides endpoints for post-session notes processing:
 - Trigger post-session workflow
 """
 
-from typing import Optional
+from typing import Callable, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session as DBSession
 
+from src.models.base import get_session_factory
+from src.models.pipeline_run import PipelineRun, PipelineType, PipelineStatus
+from src.models.session_extraction import SessionExtraction
 from src.services.notes_processor import (
     NotesProcessor,
     NotesInput,
@@ -70,10 +74,11 @@ class PostSessionStatus(BaseModel):
 
 
 # =============================================================================
-# Module-level processor (for dependency injection in tests)
+# Module-level dependencies (for dependency injection in tests)
 # =============================================================================
 
 _notes_processor: Optional[NotesProcessor] = None
+_session_factory: Optional[Callable] = None
 
 
 def get_notes_processor() -> NotesProcessor:
@@ -88,6 +93,20 @@ def set_notes_processor(processor: NotesProcessor) -> None:
     """Set notes processor (for testing)."""
     global _notes_processor
     _notes_processor = processor
+
+
+def get_session_factory_instance() -> Callable:
+    """Get or create session factory."""
+    global _session_factory
+    if _session_factory is None:
+        _session_factory = get_session_factory()
+    return _session_factory
+
+
+def set_session_factory_instance(factory: Callable) -> None:
+    """Set session factory (for testing)."""
+    global _session_factory
+    _session_factory = factory
 
 
 # =============================================================================
@@ -169,20 +188,33 @@ async def get_extraction(
             detail="Extraction results are only accessible to therapists"
         )
 
-    # TODO: Implement database lookup
-    # For now, return mock data
-    return ExtractionResponse(
-        session_id=str(session_id),
-        frameworks_discussed=["Attachment Theory", "CBT"],
-        modalities_used=["CBT", "Mindfulness"],
-        homework_assigned=[
-            {"task": "Journal about feelings", "due": "next session", "category": "reflection"}
-        ],
-        breakthroughs=["Client recognized avoidance pattern"],
-        progress_indicators=["Increased emotional awareness"],
-        areas_for_next_session=["Explore childhood experiences"],
-        session_summary="Productive session focusing on communication patterns.",
-    )
+    SessionFactory = get_session_factory_instance()
+    session = SessionFactory()
+
+    try:
+        # Query for extraction data
+        extraction = session.query(SessionExtraction).filter(
+            SessionExtraction.session_id == session_id
+        ).first()
+
+        if extraction is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Extraction results not found for this session"
+            )
+
+        return ExtractionResponse(
+            session_id=str(session_id),
+            frameworks_discussed=extraction.frameworks_discussed or [],
+            modalities_used=extraction.modalities_used or [],
+            homework_assigned=extraction.homework_assigned or [],
+            breakthroughs=extraction.breakthroughs or [],
+            progress_indicators=extraction.progress_indicators or [],
+            areas_for_next_session=extraction.areas_for_next_session or [],
+            session_summary=extraction.session_summary,
+        )
+    finally:
+        session.close()
 
 
 @router.get("/post-session/status", response_model=PostSessionStatus)
@@ -196,15 +228,45 @@ async def get_post_session_status(
     Returns the current status of notes processing,
     framework extraction, and sprint planning.
     """
-    # TODO: Implement database lookup
-    return PostSessionStatus(
-        session_id=str(session_id),
-        status="pending",
-        notes_submitted=False,
-        extraction_complete=False,
-        sprint_plan_generated=False,
-        perceptor_archived=False,
-    )
+    SessionFactory = get_session_factory_instance()
+    session = SessionFactory()
+
+    try:
+        # Query for the most recent post-session pipeline run for this session
+        pipeline_run = session.query(PipelineRun).filter(
+            PipelineRun.session_id == session_id,
+            PipelineRun.pipeline_type == PipelineType.POST_SESSION.value
+        ).order_by(PipelineRun.created_at.desc()).first()
+
+        if pipeline_run is None:
+            # No pipeline run exists yet
+            return PostSessionStatus(
+                session_id=str(session_id),
+                status="pending",
+                notes_submitted=False,
+                extraction_complete=False,
+                sprint_plan_generated=False,
+                perceptor_archived=False,
+            )
+
+        # Determine completion flags based on pipeline status and metadata
+        metadata = pipeline_run.metadata_json or {}
+        notes_submitted = metadata.get("notes_submitted", False)
+        extraction_complete = metadata.get("extraction_complete", False)
+        sprint_plan_generated = metadata.get("sprint_plan_generated", False)
+        perceptor_archived = metadata.get("perceptor_archived", False)
+
+        return PostSessionStatus(
+            session_id=str(session_id),
+            status=pipeline_run.status,
+            notes_submitted=notes_submitted,
+            extraction_complete=extraction_complete,
+            sprint_plan_generated=sprint_plan_generated,
+            perceptor_archived=perceptor_archived,
+            error_message=pipeline_run.error_message,
+        )
+    finally:
+        session.close()
 
 
 # =============================================================================
@@ -227,14 +289,27 @@ async def get_homework(
 
     Accessible by both therapist and client.
     """
-    # TODO: Implement database lookup
-    return HomeworkListResponse(
-        session_id=str(session_id),
-        assignments=[
-            {"task": "Practice deep breathing", "due": "daily", "category": "practice"},
-            {"task": "Write in journal", "due": "next session", "category": "reflection"},
-        ],
-    )
+    SessionFactory = get_session_factory_instance()
+    session = SessionFactory()
+
+    try:
+        # Query for extraction data to get homework
+        extraction = session.query(SessionExtraction).filter(
+            SessionExtraction.session_id == session_id
+        ).first()
+
+        if extraction is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No homework found for this session"
+            )
+
+        return HomeworkListResponse(
+            session_id=str(session_id),
+            assignments=extraction.homework_assigned or [],
+        )
+    finally:
+        session.close()
 
 
 # =============================================================================
@@ -265,9 +340,25 @@ async def get_progress(
             detail="Progress indicators are only accessible to therapists"
         )
 
-    # TODO: Implement database lookup
-    return ProgressResponse(
-        session_id=str(session_id),
-        indicators=["Increased self-awareness", "Better emotional regulation"],
-        breakthroughs=["Recognized pattern in relationships"],
-    )
+    SessionFactory = get_session_factory_instance()
+    session = SessionFactory()
+
+    try:
+        # Query for extraction data to get progress
+        extraction = session.query(SessionExtraction).filter(
+            SessionExtraction.session_id == session_id
+        ).first()
+
+        if extraction is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Progress indicators not found for this session"
+            )
+
+        return ProgressResponse(
+            session_id=str(session_id),
+            indicators=extraction.progress_indicators or [],
+            breakthroughs=extraction.breakthroughs or [],
+        )
+    finally:
+        session.close()

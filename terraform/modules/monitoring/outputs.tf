@@ -30,14 +30,24 @@ output "api_gateway_log_group_arn" {
   value       = aws_cloudwatch_log_group.api_gateway.arn
 }
 
-output "lambda_log_group_name" {
-  description = "Name of the Lambda log group"
-  value       = aws_cloudwatch_log_group.lambda.name
+output "application_log_group_name" {
+  description = "Name of the application log group"
+  value       = aws_cloudwatch_log_group.application.name
 }
 
-output "lambda_log_group_arn" {
-  description = "ARN of the Lambda log group"
-  value       = aws_cloudwatch_log_group.lambda.arn
+output "application_log_group_arn" {
+  description = "ARN of the application log group"
+  value       = aws_cloudwatch_log_group.application.arn
+}
+
+output "ecs_log_group_name" {
+  description = "Name of the ECS log group"
+  value       = aws_cloudwatch_log_group.ecs.name
+}
+
+output "ecs_log_group_arn" {
+  description = "ARN of the ECS log group"
+  value       = aws_cloudwatch_log_group.ecs.arn
 }
 
 output "audit_log_group_name" {
@@ -60,15 +70,6 @@ output "security_log_group_arn" {
   value       = aws_cloudwatch_log_group.security.arn
 }
 
-output "n8n_log_group_name" {
-  description = "Name of the n8n log group"
-  value       = aws_cloudwatch_log_group.n8n.name
-}
-
-output "n8n_log_group_arn" {
-  description = "ARN of the n8n log group"
-  value       = aws_cloudwatch_log_group.n8n.arn
-}
 
 # -----------------------------------------------------------------------------
 # Alarms

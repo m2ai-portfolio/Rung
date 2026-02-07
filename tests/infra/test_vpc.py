@@ -171,12 +171,12 @@ class TestSecurityGroupConfiguration:
         assert "rung-rds-sg" in content or "rds-sg" in content, \
             "RDS security group should be defined"
 
-    def test_n8n_sg_exists(self):
-        """Verify n8n security group is defined."""
+    def test_alb_sg_exists(self):
+        """Verify ALB security group is defined."""
         with open("terraform/modules/vpc/main.tf", "r") as f:
             content = f.read()
-        assert "rung-n8n-sg" in content or "n8n-sg" in content, \
-            "n8n security group should be defined"
+        assert "alb-sg" in content, \
+            "ALB security group should be defined"
 
     def test_security_group_outputs(self):
         """Verify security group outputs are defined."""
@@ -184,7 +184,7 @@ class TestSecurityGroupConfiguration:
             content = f.read()
         assert "lambda_security_group_id" in content
         assert "rds_security_group_id" in content
-        assert "n8n_security_group_id" in content
+        assert "alb_security_group_id" in content
 
     def test_rds_sg_allows_only_lambda(self):
         """Verify RDS SG only allows inbound from Lambda SG."""

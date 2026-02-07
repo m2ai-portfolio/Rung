@@ -155,6 +155,7 @@ class MergeEngine:
         couple_manager: Optional[CoupleManager] = None,
         isolation_layer: Optional[IsolationLayer] = None,
         topic_matcher: Optional[TopicMatcher] = None,
+        audit_service: Optional["AuditService"] = None,
     ):
         """
         Initialize merge engine.
@@ -163,10 +164,12 @@ class MergeEngine:
             couple_manager: Optional pre-configured couple manager
             isolation_layer: Optional pre-configured isolation layer
             topic_matcher: Optional pre-configured topic matcher
+            audit_service: Optional centralized AuditService for persistent audit logging
         """
         self.couple_manager = couple_manager or CoupleManager()
         self.isolation_layer = isolation_layer or IsolationLayer(strict_mode=True)
         self.topic_matcher = topic_matcher or TopicMatcher()
+        self.audit_service = audit_service
         self._audit_log: list[MergeAuditEntry] = []
 
     def merge(
@@ -281,6 +284,7 @@ class MergeEngine:
                 f"{len(merged.complementary_patterns)} complementary patterns."
             )
             self._audit_log.append(audit)
+            self._emit_audit_service(audit)
 
             return merged
 
@@ -288,19 +292,47 @@ class MergeEngine:
             audit.action = "merge_failed"
             audit.error_message = f"Isolation violation: {str(e)}"
             self._audit_log.append(audit)
+            self._emit_audit_service(audit)
             raise MergeEngineError(f"Isolation failed: {e}")
 
         except CoupleManagerError as e:
             audit.action = "merge_failed"
             audit.error_message = f"Authorization error: {str(e)}"
             self._audit_log.append(audit)
+            self._emit_audit_service(audit)
             raise MergeEngineError(f"Authorization failed: {e}")
 
         except Exception as e:
             audit.action = "merge_failed"
             audit.error_message = str(e)
             self._audit_log.append(audit)
+            self._emit_audit_service(audit)
             raise MergeEngineError(f"Merge failed: {e}")
+
+    def _emit_audit_service(self, audit: MergeAuditEntry) -> None:
+        """Forward a merge audit entry to the centralized AuditService if available."""
+        if self.audit_service is None:
+            return
+
+        details = {
+            "session_id": audit.session_id,
+            "isolation_invoked": audit.isolation_invoked,
+            "frameworks_accessed": audit.frameworks_accessed,
+        }
+        if audit.result_summary:
+            details["result_summary"] = audit.result_summary
+        if audit.error_message:
+            details["error_message"] = audit.error_message
+
+        self.audit_service.log_couples_merge(
+            therapist_id=audit.therapist_id,
+            couple_link_id=audit.couple_link_id,
+            partner_a_id=audit.partner_a_id,
+            partner_b_id=audit.partner_b_id,
+            action=audit.action,
+            details=details,
+            ip_address=audit.ip_address,
+        )
 
     def _combine_frameworks(
         self,

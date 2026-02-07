@@ -609,7 +609,7 @@ class TestFileStructure:
 
     def test_post_session_workflow_exists(self):
         """Verify post_session.json workflow exists."""
-        assert os.path.exists("n8n/workflows/post_session.json")
+        assert os.path.exists("n8n.deprecated/workflows/post_session.json")
 
 
 # =============================================================================
@@ -696,7 +696,7 @@ class TestDevelopmentPlanIntegration:
 
     def test_n8n_workflow_valid_json(self):
         """Test n8n workflow is valid JSON."""
-        with open("n8n/workflows/post_session.json", "r") as f:
+        with open("n8n.deprecated/workflows/post_session.json", "r") as f:
             workflow = json.load(f)
 
         assert "name" in workflow
@@ -706,7 +706,7 @@ class TestDevelopmentPlanIntegration:
 
     def test_n8n_workflow_has_required_nodes(self):
         """Test n8n workflow has required nodes."""
-        with open("n8n/workflows/post_session.json", "r") as f:
+        with open("n8n.deprecated/workflows/post_session.json", "r") as f:
             workflow = json.load(f)
 
         node_names = [n["name"] for n in workflow["nodes"]]

@@ -4,10 +4,9 @@
 
 ### Prerequisites
 - AWS CLI configured with appropriate IAM role
-- Docker (for local n8n testing)
+- Docker (for container builds)
 - Python 3.11+
-- Node.js 18+ (for Perceptor MCP)
-- Terraform 1.5+
+- Terraform 1.5+ (for infrastructure)
 
 ### Local Development Setup
 
@@ -21,60 +20,72 @@ pip install -r requirements.txt
 # Environment variables
 cp .env.example .env
 # Edit .env with your credentials (NEVER commit .env)
+
+# Run database migrations
+make migrate
 ```
 
 ### Running Tests
 
 ```bash
-# All tests
-pytest tests/ -v
+# All tests with coverage (recommended)
+make test
 
-# Unit tests only
-pytest tests/unit/ -v
+# Quick tests (no coverage)
+make test-quick
 
-# Integration tests (requires AWS credentials)
-pytest tests/integration/ -v
-
-# Security/isolation tests (CRITICAL - must pass)
-pytest tests/security/ -v --strict
+# Specific test suites
+pytest tests/unit/ -v              # Unit tests
+pytest tests/integration/ -v       # Integration tests
+pytest tests/e2e/ -v               # End-to-end pipeline tests
+pytest tests/security/ -v --strict # Security/isolation tests (CRITICAL)
 
 # Coverage report
-pytest tests/ --cov=src --cov-report=html
+make test  # Generates htmlcov/index.html
 ```
 
 ### Infrastructure Deployment
 
 ```bash
-# Initialize Terraform
-cd terraform/
-terraform init
+# Validate Terraform syntax
+make tf-validate
 
-# Plan (review changes)
-terraform plan -out=tfplan
+# Plan changes
+make tf-plan
 
-# Apply (requires approval)
-terraform apply tfplan
+# Apply (creates AWS resources - requires confirmation)
+make tf-apply
+
+# View outputs (ECR URL, ECS cluster, etc.)
+make tf-output
 ```
 
-### n8n Workflows
+### Docker & ECS Deployment
 
 ```bash
-# Export workflow for backup
-curl -X GET "http://n8n-host/api/v1/workflows/{id}" \
-  -H "X-N8N-API-KEY: $N8N_API_KEY" > n8n/workflow-{name}.json
+# Build Docker image locally
+make build
 
-# Import workflow
-curl -X POST "http://n8n-host/api/v1/workflows" \
-  -H "X-N8N-API-KEY: $N8N_API_KEY" \
-  -d @n8n/workflow-{name}.json
+# Run container locally (requires .env file)
+make run-local
+
+# Build, push to ECR, and deploy to ECS
+make deploy
+
+# Check deployment status
+make deployment-status
+
+# View logs from ECS
+make logs
 ```
 
 ## Development Workflow
 
 ### Branch Naming
-- `feature/phase-{N}-{description}` - New phase work
+- `feature/{description}` - New features
 - `fix/{issue-description}` - Bug fixes
 - `security/{issue}` - Security-related changes
+- `docs/{description}` - Documentation updates
 
 ### Commit Messages
 ```
@@ -91,69 +102,65 @@ docs: update ARCHITECTURE.md with couples merge flow
 - [ ] Encryption verified for new data flows
 - [ ] `decisions.log` updated if architectural change
 
-## Phase-Specific Commands
+## Testing Pipelines
 
-### Phase 1: Foundation
-
-```bash
-# Deploy VPC and RDS
-cd terraform/phase1
-terraform apply
-
-# Verify database connection
-psql -h $RDS_ENDPOINT -U rung_admin -d rung
-
-# Test encryption
-python scripts/test_encryption.py
-```
-
-### Phase 2: Pre-Session Pipeline
+### Pre-Session Pipeline
 
 ```bash
-# Test voice memo upload
-python scripts/test_voice_upload.py --file test_memo.m4a
+# Unit tests
+pytest tests/unit/test_pre_session_pipeline.py -v
 
-# Test Rung agent
-python scripts/test_rung_agent.py --input "sample transcript"
+# Integration test (requires AWS/mocks)
+pytest tests/integration/test_pre_session.py -v
 
-# Test Perplexity anonymization
-python scripts/test_perplexity.py --query "attachment anxiety frameworks"
-
-# Full pre-session E2E
+# End-to-end test
 pytest tests/e2e/test_pre_session.py -v
 ```
 
-### Phase 3: Post-Session Pipeline
+### Post-Session Pipeline
 
 ```bash
-# Test notes processing
-python scripts/test_notes_processing.py --session-id 123
+# Unit tests
+pytest tests/unit/test_post_session_pipeline.py -v
 
-# Test Perceptor integration
-python scripts/test_perceptor.py --action save
+# Integration test
+pytest tests/integration/test_post_session.py -v
 
-# Full post-session E2E
+# End-to-end test
 pytest tests/e2e/test_post_session.py -v
 ```
 
-### Phase 4: Couples Merge
+### Couples Merge Pipeline
 
 ```bash
-# Test isolation layer (CRITICAL)
+# CRITICAL: Isolation tests must pass
 pytest tests/security/test_couples_isolation.py -v --strict
 
-# Test framework extraction
-python scripts/test_framework_extraction.py
+# Unit tests
+pytest tests/unit/test_couples_merge.py -v
 
-# Full couples E2E
+# End-to-end test
 pytest tests/e2e/test_couples_merge.py -v
+```
+
+### Services
+
+```bash
+# Encryption service
+pytest tests/unit/test_encryption.py -v
+
+# Audit service
+pytest tests/unit/test_audit.py -v
+
+# Progress analytics
+pytest tests/unit/test_progress_analytics.py -v
 ```
 
 ## Monitoring
 
 ### CloudWatch Dashboards
-- `Rung-Workflows`: n8n workflow execution metrics
-- `Rung-API`: API Gateway latency and errors
+- `Rung-Pipelines`: Pipeline execution metrics (duration, failures)
+- `Rung-API`: API latency and errors
 - `Rung-Security`: Authentication failures, PHI access logs
 
 ### Alerts
@@ -180,14 +187,14 @@ aws logs filter-log-events \
 
 ### Common Issues
 
-**n8n workflow fails silently**
+**Pipeline fails silently**
 ```bash
-# Check n8n logs
-docker logs rung-n8n --tail 100
+# Check ECS logs
+make logs
 
-# Check specific execution
-curl "http://n8n-host/api/v1/executions/{id}" \
-  -H "X-N8N-API-KEY: $N8N_API_KEY"
+# Check specific pipeline status
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.rung.health/v1/sessions/{id}/pre-session/status
 ```
 
 **Bedrock timeout**
@@ -195,10 +202,10 @@ curl "http://n8n-host/api/v1/executions/{id}" \
 - Verify IAM role has bedrock:InvokeModel permission
 - Review token budget (may exceed limit)
 
-**Perceptor not saving**
-- Verify Perceptor MCP is running: `curl http://localhost:3100/health`
-- Check tag format matches expected schema
-- Review Perceptor logs for errors
+**Pipeline timeout**
+- Check ECS task timeout (default: 10 minutes)
+- Review CloudWatch logs for bottleneck stage
+- Consider increasing task timeout or optimizing stage
 
 **Encryption/decryption failure**
 - Verify KMS key permissions

@@ -7,11 +7,18 @@ Provides endpoints for pre-session workflow status and outputs:
 - Workflow status
 """
 
-from typing import Optional
-from uuid import UUID
+from typing import Callable, Optional
+from uuid import UUID, uuid4
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from src.models.base import get_session_factory
+from src.models.pipeline_run import PipelineRun, PipelineType, PipelineStatus
+from src.models.clinical_brief import ClinicalBrief as ClinicalBriefModel
+from src.models.client_guide import ClientGuide as ClientGuideModel
 
 
 router = APIRouter(prefix="/sessions/{session_id}/pre-session", tags=["pre-session"])
@@ -68,6 +75,27 @@ class TriggerResponse(BaseModel):
 
 
 # =============================================================================
+# Module-level session factory (for dependency injection in tests)
+# =============================================================================
+
+_session_factory: Optional[Callable] = None
+
+
+def get_session_factory_instance() -> Callable:
+    """Get or create session factory."""
+    global _session_factory
+    if _session_factory is None:
+        _session_factory = get_session_factory()
+    return _session_factory
+
+
+def set_session_factory_instance(factory: Callable) -> None:
+    """Set session factory (for testing)."""
+    global _session_factory
+    _session_factory = factory
+
+
+# =============================================================================
 # Endpoints
 # =============================================================================
 
@@ -82,16 +110,45 @@ async def get_pre_session_status(
     Returns the current status of voice memo processing,
     transcription, Rung analysis, and Beth generation.
     """
-    # TODO: Implement database lookup
-    # For now, return mock status
-    return PreSessionStatus(
-        session_id=str(session_id),
-        status="pending",
-        voice_memo_uploaded=False,
-        transcription_complete=False,
-        rung_analysis_complete=False,
-        beth_generation_complete=False,
-    )
+    SessionFactory = get_session_factory_instance()
+    session = SessionFactory()
+
+    try:
+        # Query for the most recent pre-session pipeline run for this session
+        pipeline_run = session.query(PipelineRun).filter(
+            PipelineRun.session_id == session_id,
+            PipelineRun.pipeline_type == PipelineType.PRE_SESSION.value
+        ).order_by(PipelineRun.created_at.desc()).first()
+
+        if pipeline_run is None:
+            # No pipeline run exists yet
+            return PreSessionStatus(
+                session_id=str(session_id),
+                status="pending",
+                voice_memo_uploaded=False,
+                transcription_complete=False,
+                rung_analysis_complete=False,
+                beth_generation_complete=False,
+            )
+
+        # Determine completion flags based on pipeline status and metadata
+        metadata = pipeline_run.metadata_json or {}
+        voice_memo_uploaded = metadata.get("voice_memo_uploaded", False)
+        transcription_complete = metadata.get("transcription_complete", False)
+        rung_analysis_complete = metadata.get("rung_analysis_complete", False)
+        beth_generation_complete = metadata.get("beth_generation_complete", False)
+
+        return PreSessionStatus(
+            session_id=str(session_id),
+            status=pipeline_run.status,
+            voice_memo_uploaded=voice_memo_uploaded,
+            transcription_complete=transcription_complete,
+            rung_analysis_complete=rung_analysis_complete,
+            beth_generation_complete=beth_generation_complete,
+            error_message=pipeline_run.error_message,
+        )
+    finally:
+        session.close()
 
 
 @router.get("/clinical-brief", response_model=ClinicalBrief)
@@ -113,18 +170,36 @@ async def get_clinical_brief(
             detail="Clinical brief is only accessible to therapists"
         )
 
-    # TODO: Implement database lookup and Rung output retrieval
-    # For now, return mock data
-    return ClinicalBrief(
-        session_id=str(session_id),
-        frameworks_identified=[],
-        defense_mechanisms=[],
-        risk_flags=[],
-        key_themes=["Processing emotions", "Communication patterns"],
-        suggested_exploration=["Attachment history"],
-        session_questions=["What comes up when you think about that?"],
-        analysis_confidence=0.85,
-    )
+    SessionFactory = get_session_factory_instance()
+    session = SessionFactory()
+
+    try:
+        # Query for clinical brief for this session
+        clinical_brief = session.query(ClinicalBriefModel).filter(
+            ClinicalBriefModel.session_id == session_id
+        ).first()
+
+        if clinical_brief is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Clinical brief not found for this session"
+            )
+
+        # TODO: Decrypt content_encrypted if needed
+        # For now, return available structured data
+        return ClinicalBrief(
+            session_id=str(session_id),
+            frameworks_identified=clinical_brief.frameworks_identified or [],
+            defense_mechanisms=[],  # Not in current model, would need to be added
+            risk_flags=clinical_brief.risk_flags or [],
+            key_themes=[],  # Not in current model, could extract from content
+            suggested_exploration=[],  # Not in current model
+            session_questions=[],  # Not in current model
+            research_citations=clinical_brief.research_citations or [],
+            analysis_confidence=None,  # Not in current model
+        )
+    finally:
+        session.close()
 
 
 @router.get("/client-guide", response_model=ClientGuide)
@@ -138,24 +213,32 @@ async def get_client_guide(
     Contains Beth output with accessible language.
     No clinical terminology.
     """
-    # TODO: Implement database lookup and Beth output retrieval
-    # For now, return mock data
-    return ClientGuide(
-        session_id=str(session_id),
-        session_prep="Your session is coming up! Take a moment to think about what's been on your mind lately.",
-        discussion_points=[
-            "Any moments this week that stood out to you",
-            "How you've been feeling in your relationships",
-        ],
-        reflection_questions=[
-            "What's been taking up most of your mental energy?",
-            "Have you noticed any patterns in how you've been feeling?",
-        ],
-        exercises=[
-            "Try journaling for 5 minutes about your week",
-            "Take a few deep breaths before your session",
-        ],
-    )
+    SessionFactory = get_session_factory_instance()
+    session = SessionFactory()
+
+    try:
+        # Query for client guide for this session
+        client_guide = session.query(ClientGuideModel).filter(
+            ClientGuideModel.session_id == session_id
+        ).first()
+
+        if client_guide is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Client guide not found for this session"
+            )
+
+        # TODO: Decrypt content_encrypted if needed
+        # For now, return available structured data
+        return ClientGuide(
+            session_id=str(session_id),
+            session_prep="",  # Would need to extract from decrypted content
+            discussion_points=client_guide.key_points or [],
+            reflection_questions=[],  # Not in current model
+            exercises=[ex.get("description", ex.get("name", "")) for ex in (client_guide.exercises_suggested or [])],
+        )
+    finally:
+        session.close()
 
 
 @router.post("/trigger", response_model=TriggerResponse)
@@ -167,17 +250,52 @@ async def trigger_pre_session(
     """
     Trigger pre-session processing workflow.
 
-    Starts the n8n workflow to process voice memo,
-    run Rung analysis, and generate Beth output.
+    Creates a pipeline run record for the pre-session workflow.
+    The actual pipeline execution will be handled by a background task.
     """
-    # TODO: Implement n8n webhook trigger
-    # For now, return mock response
-    return TriggerResponse(
-        session_id=str(session_id),
-        workflow_id="mock-workflow-id",
-        status="triggered",
-        message="Pre-session processing started",
-    )
+    SessionFactory = get_session_factory_instance()
+    session = SessionFactory()
+
+    try:
+        # Check if a pipeline already exists and is running
+        existing_run = session.query(PipelineRun).filter(
+            PipelineRun.session_id == session_id,
+            PipelineRun.pipeline_type == PipelineType.PRE_SESSION.value,
+            PipelineRun.status.in_([PipelineStatus.PENDING.value, PipelineStatus.PROCESSING.value])
+        ).first()
+
+        if existing_run and not request.force_reprocess:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Pre-session pipeline already running (status: {existing_run.status})"
+            )
+
+        # Create new pipeline run record
+        pipeline_run = PipelineRun(
+            id=uuid4(),
+            pipeline_type=PipelineType.PRE_SESSION.value,
+            session_id=session_id,
+            status=PipelineStatus.PENDING.value,
+            metadata_json={
+                "triggered_by": x_user_id,
+                "force_reprocess": request.force_reprocess,
+            },
+            created_at=datetime.utcnow(),
+        )
+
+        session.add(pipeline_run)
+        session.commit()
+
+        workflow_id = str(pipeline_run.id)
+
+        return TriggerResponse(
+            session_id=str(session_id),
+            workflow_id=workflow_id,
+            status="triggered",
+            message="Pre-session processing pipeline created",
+        )
+    finally:
+        session.close()
 
 
 # =============================================================================

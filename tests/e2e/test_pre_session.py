@@ -491,16 +491,16 @@ class TestFileStructure:
         assert os.path.exists("src/api/pre_session.py")
 
     def test_n8n_workflow_exists(self):
-        """Verify pre_session.json workflow exists."""
-        assert os.path.exists("n8n/workflows/pre_session.json")
+        """Verify pre_session.json workflow exists (deprecated, moved to n8n.deprecated/)."""
+        assert os.path.exists("n8n.deprecated/workflows/pre_session.json")
 
 
 class TestN8NWorkflow:
-    """Test n8n workflow configuration."""
+    """Test n8n workflow configuration (DEPRECATED -- workflows replaced by src/pipelines/)."""
 
     def test_workflow_is_valid_json(self):
         """Test workflow file is valid JSON."""
-        with open("n8n/workflows/pre_session.json", "r") as f:
+        with open("n8n.deprecated/workflows/pre_session.json", "r") as f:
             workflow = json.load(f)
 
         assert "nodes" in workflow
@@ -508,7 +508,7 @@ class TestN8NWorkflow:
 
     def test_workflow_has_required_nodes(self):
         """Test workflow has all required nodes."""
-        with open("n8n/workflows/pre_session.json", "r") as f:
+        with open("n8n.deprecated/workflows/pre_session.json", "r") as f:
             workflow = json.load(f)
 
         node_names = [n["name"] for n in workflow["nodes"]]
@@ -525,7 +525,7 @@ class TestN8NWorkflow:
 
     def test_workflow_has_abstraction_layer(self):
         """Test workflow includes abstraction layer node."""
-        with open("n8n/workflows/pre_session.json", "r") as f:
+        with open("n8n.deprecated/workflows/pre_session.json", "r") as f:
             workflow = json.load(f)
 
         abstraction_nodes = [

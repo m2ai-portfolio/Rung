@@ -1,6 +1,13 @@
 """
 Transcription Status Lambda Handler
 
+DEPRECATED: This Lambda handler has been superseded by the FastAPI + ECS stack.
+Transcription status functionality is now handled by src/api/voice_memo.py on ECS.
+This file is retained because tests/voice/test_voice_processing.py imports from it.
+Remove this file once those tests are migrated to test the FastAPI endpoints instead.
+See: src/api/voice_memo.py for the replacement implementation.
+
+Original description:
 Checks the status of an AWS Transcribe Medical job.
 """
 

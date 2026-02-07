@@ -97,13 +97,13 @@ resource "aws_cloudwatch_log_group" "api_gateway" {
   })
 }
 
-resource "aws_cloudwatch_log_group" "lambda" {
-  name              = "/aws/lambda/rung-${var.environment}"
+resource "aws_cloudwatch_log_group" "application" {
+  name              = "/rung/application/${var.environment}"
   retention_in_days = local.hipaa_retention_days
   kms_key_id        = var.kms_key_arn
 
   tags = merge(local.common_tags, {
-    Name     = "rung-lambda-logs"
+    Name     = "rung-application-logs"
     PHI      = "false"
     LogType  = "application"
   })
@@ -135,15 +135,15 @@ resource "aws_cloudwatch_log_group" "security" {
   })
 }
 
-resource "aws_cloudwatch_log_group" "n8n" {
-  name              = "/rung/n8n/${var.environment}"
+resource "aws_cloudwatch_log_group" "ecs" {
+  name              = "/ecs/rung-${var.environment}"
   retention_in_days = local.hipaa_retention_days
   kms_key_id        = var.kms_key_arn
 
   tags = merge(local.common_tags, {
-    Name     = "rung-n8n-logs"
+    Name     = "rung-ecs-logs"
     PHI      = "false"
-    LogType  = "workflow"
+    LogType  = "application"
   })
 }
 
@@ -602,7 +602,8 @@ resource "aws_cloudwatch_query_definition" "error_analysis" {
   name = "Rung/Application/Error-Analysis"
 
   log_group_names = [
-    aws_cloudwatch_log_group.lambda.name,
+    aws_cloudwatch_log_group.application.name,
+    aws_cloudwatch_log_group.ecs.name,
     aws_cloudwatch_log_group.api_gateway.name
   ]
 

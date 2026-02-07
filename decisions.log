@@ -369,13 +369,73 @@ Need to define API contract for client applications (web/mobile) to interact wit
 
 ---
 
+---
+
+## ADR-011: Consolidate to FastAPI + ECS Fargate (Supersedes ADR-002)
+
+**Date**: 2026-02-06
+**Status**: Accepted
+
+### Decision
+Consolidate all orchestration into Python async pipelines running on ECS Fargate. Eliminate n8n entirely.
+
+### Context
+The original architecture used self-hosted n8n on EC2 for workflow orchestration (ADR-002). This created a split-brain problem: n8n sequenced HTTP calls to FastAPI endpoints that contained all the actual business logic. The n8n JavaScript abstraction layer duplicated security-critical Python code patterns. Additionally:
+- Self-hosted n8n has no HIPAA BAA coverage
+- Required maintaining two languages (Python + JavaScript) for security-critical code
+- Visual workflows had limited debuggability for complex error states
+- n8n requires separate EC2 instance, ALB, and PostgreSQL database
+- Deployment complexity increased with multiple components
+
+### Options Considered
+1. **Keep n8n, harden security** - Continue current split-brain, add more controls
+2. **Migrate to AWS Step Functions** - Replace n8n with AWS native, still split from app logic
+3. **Consolidate to Python async pipelines** - Single language, single deployment
+4. **Use Temporal** - Better reliability, steeper learning curve, additional infrastructure
+
+### Rationale
+- All business logic already exists in Python services (`src/services/`)
+- Async Python pipelines provide equivalent sequencing without abstraction layer
+- Single Docker container deployment simplifies operations
+- ECS Fargate appropriate for 2-5 minute pipeline execution times (Lambda 15min limit insufficient)
+- All security-critical code in one language (Python) improves auditability
+- Eliminates 1 EC2 instance, 1 ALB, 1 PostgreSQL database
+- Structured logging + pipeline status tracking provides debugging visibility
+- Single ALB → ECS → RDS/S3/Bedrock architecture
+
+### Implementation
+- Created `src/pipelines/` with async pipeline orchestration:
+  - `pre_session.py` - Voice memo → Clinical brief + Client guide
+  - `post_session.py` - Session notes → Development plan
+  - `couples_merge.py` - Framework-level partner insights
+- Consolidated Lambda handlers into FastAPI endpoints (`src/api/`)
+- Added centralized services:
+  - `src/services/encryption.py` - KMS envelope encryption
+  - `src/services/audit.py` - HIPAA audit logging
+  - `src/services/progress_analytics.py` - Client development tracking
+- Added Alembic migrations (`src/db/alembic/`)
+- Created ECS Fargate deployment infrastructure (`terraform/modules/ecs/`)
+- Moved n8n directory to `n8n.deprecated/` (preserved for reference)
+- Lambda files marked deprecated but preserved for test compatibility
+
+### Consequences
+- **Positive**: Single deployment unit (Docker container)
+- **Positive**: All security code in Python (easier HIPAA audit)
+- **Positive**: Reduced infrastructure cost (no EC2, ALB, RDS for n8n)
+- **Positive**: Simplified credential management (no n8n credential store)
+- **Positive**: Faster development (no context switching between languages)
+- **Negative**: Lost visual workflow debugging (mitigated by structured logging + status endpoints)
+- **Negative**: Pipeline errors require log analysis instead of visual inspection
+- **Mitigation**: Comprehensive logging, pipeline status tracking, FastAPI `/health` and `/pipelines/{id}/status` endpoints
+
+---
+
 ## Pending Decisions
 
 ### PDR-001: Post-MVP Migration from n8n
 - **Context**: n8n is being phased out per team guidelines
-- **Options**: AWS Step Functions, Temporal, custom orchestration
-- **Timeline**: Decide by end of Phase 6
-- **Owner**: TBD
+- **Status**: RESOLVED - See ADR-011
+- **Resolution**: Migrated to Python async pipelines on ECS Fargate
 
 ### PDR-002: Client Notification System
 - **Context**: Currently only therapist notifications via Slack
@@ -392,4 +452,4 @@ Need to define API contract for client applications (web/mobile) to interact wit
 ---
 
 *Log maintained by: Backend Architect*
-*Last Updated: 2026-01-31*
+*Last Updated: 2026-02-06*

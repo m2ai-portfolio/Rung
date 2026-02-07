@@ -305,84 +305,8 @@ resource "aws_security_group" "rds" {
     security_groups = [aws_security_group.lambda.id]
   }
 
-  # Inbound from n8n
-  ingress {
-    description     = "PostgreSQL from n8n"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.n8n.id]
-  }
-
   tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-rds-sg"
-  })
-}
-
-#------------------------------------------------------------------------------
-# Security Group - n8n
-#------------------------------------------------------------------------------
-resource "aws_security_group" "n8n" {
-  name        = "${local.name_prefix}-n8n-sg"
-  description = "Security group for n8n EC2 instance"
-  vpc_id      = aws_vpc.main.id
-
-  # Inbound HTTPS from ALB
-  ingress {
-    description = "HTTPS from ALB"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = var.public_subnet_cidrs
-  }
-
-  # Inbound HTTP from ALB (for health checks)
-  ingress {
-    description = "HTTP from ALB"
-    from_port   = 5678
-    to_port     = 5678
-    protocol    = "tcp"
-    cidr_blocks = var.public_subnet_cidrs
-  }
-
-  # Outbound to Bedrock VPC Endpoint
-  egress {
-    description     = "HTTPS to Bedrock endpoint"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.vpc_endpoints.id]
-  }
-
-  # Outbound to RDS
-  egress {
-    description = "PostgreSQL to RDS"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = var.private_subnet_cidrs
-  }
-
-  # Outbound to S3 (via VPC endpoint)
-  egress {
-    description     = "HTTPS to S3"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    prefix_list_ids = [aws_vpc_endpoint.s3.prefix_list_id]
-  }
-
-  # Outbound to external services via NAT (Perplexity, Slack)
-  egress {
-    description = "HTTPS to external services via NAT"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-n8n-sg"
   })
 }
 
@@ -403,13 +327,13 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Outbound to n8n
+  # Outbound to ECS Fargate tasks in private subnets
   egress {
-    description     = "HTTP to n8n"
-    from_port       = 5678
-    to_port         = 5678
-    protocol        = "tcp"
-    security_groups = [aws_security_group.n8n.id]
+    description = "HTTP to ECS containers"
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
+    cidr_blocks = var.private_subnet_cidrs
   }
 
   tags = merge(local.common_tags, {

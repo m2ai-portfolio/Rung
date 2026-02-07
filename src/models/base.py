@@ -69,6 +69,7 @@ def get_engine(database_url: str | None = None):
         max_overflow=10,
         pool_timeout=30,
         pool_recycle=1800,
+        pool_pre_ping=True,
         echo=os.getenv("SQL_ECHO", "false").lower() == "true"
     )
 

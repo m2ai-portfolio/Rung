@@ -399,22 +399,22 @@ class TestTerraformConfiguration:
 
     def test_transcribe_module_main_exists(self):
         """Verify transcribe/main.tf exists."""
-        path = "terraform/modules/transcribe/main.tf"
+        path = "terraform/modules/transcribe.deprecated/main.tf"
         assert os.path.exists(path), f"Missing {path}"
 
     def test_transcribe_module_variables_exists(self):
         """Verify transcribe/variables.tf exists."""
-        path = "terraform/modules/transcribe/variables.tf"
+        path = "terraform/modules/transcribe.deprecated/variables.tf"
         assert os.path.exists(path), f"Missing {path}"
 
     def test_transcribe_module_outputs_exists(self):
         """Verify transcribe/outputs.tf exists."""
-        path = "terraform/modules/transcribe/outputs.tf"
+        path = "terraform/modules/transcribe.deprecated/outputs.tf"
         assert os.path.exists(path), f"Missing {path}"
 
     def test_lambda_functions_defined(self):
         """Verify Lambda functions are defined in Terraform."""
-        with open("terraform/modules/transcribe/main.tf", "r") as f:
+        with open("terraform/modules/transcribe.deprecated/main.tf", "r") as f:
             content = f.read()
 
         assert 'aws_lambda_function" "voice_upload"' in content
@@ -423,14 +423,14 @@ class TestTerraformConfiguration:
 
     def test_iam_role_defined(self):
         """Verify IAM role is defined."""
-        with open("terraform/modules/transcribe/main.tf", "r") as f:
+        with open("terraform/modules/transcribe.deprecated/main.tf", "r") as f:
             content = f.read()
 
         assert 'aws_iam_role" "lambda_voice_processing"' in content
 
     def test_transcribe_permissions(self):
         """Verify Transcribe permissions are in IAM policy."""
-        with open("terraform/modules/transcribe/main.tf", "r") as f:
+        with open("terraform/modules/transcribe.deprecated/main.tf", "r") as f:
             content = f.read()
 
         assert "transcribe:StartMedicalTranscriptionJob" in content
@@ -438,14 +438,14 @@ class TestTerraformConfiguration:
 
     def test_api_gateway_defined(self):
         """Verify API Gateway is defined."""
-        with open("terraform/modules/transcribe/main.tf", "r") as f:
+        with open("terraform/modules/transcribe.deprecated/main.tf", "r") as f:
             content = f.read()
 
         assert 'aws_apigatewayv2_api" "voice_api"' in content
 
     def test_hipaa_tag_present(self):
         """Verify HIPAA tag is present."""
-        with open("terraform/modules/transcribe/main.tf", "r") as f:
+        with open("terraform/modules/transcribe.deprecated/main.tf", "r") as f:
             content = f.read()
 
         assert 'HIPAA' in content
