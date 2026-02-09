@@ -96,6 +96,12 @@ try:
 except ImportError as e:
     print(f"Warning: Could not import merged_frameworks router: {e}")
 
+try:
+    from src.api.reading_list import router as reading_list_router
+    app.include_router(reading_list_router)
+except ImportError as e:
+    print(f"Warning: Could not import reading_list router: {e}")
+
 
 # =============================================================================
 # Startup/Shutdown Events

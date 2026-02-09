@@ -135,7 +135,8 @@ make tf-apply         # Terraform apply (dev environment)
 - [x] Phase B: Pipeline Orchestration (Pre-Session, Post-Session, Couples)
 - [x] Phase C: Progress Analytics
 - [x] Phase D: Deployment Infrastructure (ECS Fargate)
-- [ ] Phase E: Documentation (In Progress)
+- [x] Phase E: Documentation
+- [x] Phase E2: Reading List Feature (ADR-012)
 - [ ] Phase F: Production Deployment
 - [ ] Phase G: Couples Module Field Test
 
@@ -145,4 +146,4 @@ Architecture designed for Ralph-loop automation with clear completion criteria a
 
 ---
 
-*Last Updated: 2026-01-31*
+*Last Updated: 2026-02-09*

@@ -182,3 +182,7 @@ class RungAnalysisRequest(BaseModel):
         None,
         description="Session number for longitudinal tracking"
     )
+    reading_context: Optional[str] = Field(
+        None,
+        description="Reading list items flagged for session discussion"
+    )

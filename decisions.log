@@ -430,6 +430,48 @@ The original architecture used self-hosted n8n on EC2 for workflow orchestration
 
 ---
 
+## ADR-012: Reading List PHI Boundaries
+
+**Date**: 2026-02-09
+**Status**: Accepted
+
+### Decision
+Implement reading list feature with clear PHI boundary: article URLs/titles/sources are NOT PHI, but client notes and therapist assignment notes ARE PHI and must be encrypted.
+
+### Context
+Client wants to tag articles from Psychology Today and books for therapy session discussion. The feature includes free-text notes where clients reflect on readings and therapist instructions that may reference treatment context. Need clear PHI classification for each field.
+
+### Options Considered
+1. **Encrypt everything** - Maximum security, performance overhead, can't search/display titles
+2. **Encrypt notes only** - URLs/titles are public content, notes contain psychological reflections
+3. **No encryption** - Fastest, violates HIPAA for note content
+
+### Rationale
+- Article URLs and titles are publicly available content (e.g., Psychology Today articles)
+- Client notes (`notes_encrypted`) contain personal psychological reflections = PHI
+- Therapist assignment notes (`assignment_notes_encrypted`) may contain clinical context referencing treatment (e.g., "Read this about grief - relates to your mother's passing") = PHI
+- Pipeline context output includes titles/URLs but explicitly excludes encrypted note content
+- Soft delete preserves records for HIPAA audit trail while removing from active queries
+
+### Implementation
+- `url`, `title`, `source` columns: plaintext `String` (not PHI)
+- `notes_encrypted`: `LargeBinary` with KMS envelope encryption (PHI)
+- `assignment_notes_encrypted`: `LargeBinary` with KMS envelope encryption (PHI)
+- `deleted_at`: soft delete column (nullable DateTime)
+- Pipeline context: indicates "client added personal notes" without exposing content
+- List endpoint: returns `has_notes` boolean, NOT decrypted content
+- Detail endpoint: decrypts notes with audit logging
+
+### Consequences
+- **Positive**: Clear PHI boundary enables safe pipeline integration
+- **Positive**: Titles/sources available for display without decryption overhead
+- **Positive**: Audit trail preserved via soft delete
+- **Positive**: Notes-present indicator in pipeline context avoids PHI leak
+- **Negative**: Two-tier response model (list vs detail) adds complexity
+- **Mitigation**: ReadingItemRead (list) and ReadingItemDetail (detail) Pydantic schemas make boundary explicit
+
+---
+
 ## Pending Decisions
 
 ### PDR-001: Post-MVP Migration from n8n
@@ -452,4 +494,4 @@ The original architecture used self-hosted n8n on EC2 for workflow orchestration
 ---
 
 *Log maintained by: Backend Architect*
-*Last Updated: 2026-02-06*
+*Last Updated: 2026-02-09*

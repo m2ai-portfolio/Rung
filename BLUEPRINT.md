@@ -150,6 +150,34 @@
 
 ---
 
+### Phase E2: Reading List Feature  ✅ **COMPLETE**
+**Status**: Complete
+**Date**: 2026-02-09
+**ADR**: ADR-012 (Reading List PHI Boundaries)
+
+#### Implementation
+- [x] Data model: `ReadingItem` SQLAlchemy model + Pydantic schemas (`src/models/reading_item.py`)
+- [x] Alembic migration: `reading_items` table with indexes
+- [x] Service layer: `ReadingListService` with encryption, audit, authorization (`src/services/reading_list.py`)
+- [x] API endpoints: CRUD + assign + for-session (`src/api/reading_list.py`)
+- [x] Pipeline integration: Reading context injected into Rung analysis request
+- [x] Pipeline resilience: Reading service failure doesn't break pre-session pipeline
+- [x] Soft delete: `deleted_at` column for HIPAA audit trail preservation
+- [x] PHI encryption: Client notes and therapist assignment notes encrypted at rest
+- [x] Audit logging: All PHI operations (create/read/update/delete) logged
+- [x] Client isolation: Client A cannot access Client B's reading items
+- [x] Therapist ownership: Therapist can only access owned client's items
+- [x] Tests: 85 tests, 88% coverage (model 100%, service 86%, API 82%)
+
+**Completion Criteria**:
+- [x] All reading list tests passing
+- [x] Encryption round-trip verified
+- [x] Client isolation verified
+- [x] Pipeline integration tested (with context, without context, failure resilience)
+- [x] No regressions in existing tests
+
+---
+
 ### Phase F: Production Deployment  ⚪ **FUTURE**
 **Status**: Not Started
 **Estimated Duration**: 2 weeks
@@ -220,6 +248,7 @@
 - [x] Phase C: Progress Analytics
 - [x] Phase D: Deployment Infrastructure
 - [x] Phase E: Documentation
+- [x] Phase E2: Reading List Feature
 - [ ] Phase F: Production Deployment
 - [ ] Phase G: Couples Module (Phase 2)
 
@@ -252,6 +281,7 @@
 | Encryption | `src/services/encryption.py` | ✅ Complete |
 | Audit | `src/services/audit.py` | ✅ Complete |
 | Progress Analytics | `src/services/progress_analytics.py` | ✅ Complete |
+| Reading List | `src/services/reading_list.py` | ✅ Complete |
 | Migrations | `src/db/alembic/` | ✅ Complete |
 | Deployment | `terraform/modules/ecs/` | ✅ Complete |
 | Tests | `tests/` | ✅ 80%+ coverage |
@@ -287,4 +317,4 @@
 
 ---
 
-*Last Updated: 2026-02-06*
+*Last Updated: 2026-02-09*

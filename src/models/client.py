@@ -56,6 +56,7 @@ class Client(Base):
     sessions = relationship("Session", back_populates="client")
     agents = relationship("Agent", back_populates="client")
     development_plans = relationship("DevelopmentPlan", back_populates="client")
+    reading_items = relationship("ReadingItem", back_populates="client")
 
     def __repr__(self) -> str:
         return f"<Client(id={self.id}, therapist_id={self.therapist_id}, consent_status={self.consent_status})>"

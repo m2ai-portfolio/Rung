@@ -15,6 +15,7 @@ from src.models.session_extraction import SessionExtraction, SessionExtractionCr
 from src.models.audit_log import AuditLog, AuditLogCreate, AuditLogRead
 from src.models.pipeline_run import PipelineRun, PipelineRunCreate, PipelineRunRead, PipelineRunUpdate, PipelineType, PipelineStatus
 from src.models.progress_metric import ProgressMetric, ProgressMetricCreate, ProgressMetricRead, MetricType
+from src.models.reading_item import ReadingItem, ReadingItemCreate, ReadingItemAssign, ReadingItemUpdate, ReadingItemRead, ReadingItemDetail, ReadingStatus, AddedByRole
 
 __all__ = [
     # Base
@@ -89,4 +90,13 @@ __all__ = [
     "ProgressMetricCreate",
     "ProgressMetricRead",
     "MetricType",
+    # Reading Item
+    "ReadingItem",
+    "ReadingItemCreate",
+    "ReadingItemAssign",
+    "ReadingItemUpdate",
+    "ReadingItemRead",
+    "ReadingItemDetail",
+    "ReadingStatus",
+    "AddedByRole",
 ]

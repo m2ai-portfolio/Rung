@@ -41,6 +41,7 @@ from src.models.framework_merge import FrameworkMerge  # noqa: E402, F401
 from src.models.audit_log import AuditLog  # noqa: E402, F401
 from src.models.pipeline_run import PipelineRun  # noqa: E402, F401
 from src.models.progress_metric import ProgressMetric  # noqa: E402, F401
+from src.models.reading_item import ReadingItem  # noqa: E402, F401
 
 target_metadata = Base.metadata
 

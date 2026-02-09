@@ -27,6 +27,7 @@ from src.models.pipeline_run import PipelineStatus
 from src.pipelines.base import complete_pipeline, fail_pipeline, update_pipeline_stage
 from src.services.abstraction_layer import AbstractionLayer
 from src.services.audit import AuditService
+from src.services.reading_list import ReadingListService
 from src.services.research import ResearchService
 from src.services.transcription import TranscriptionService
 
@@ -44,6 +45,7 @@ async def run_pre_session_pipeline(
     abstraction_layer: Optional[AbstractionLayer] = None,
     beth_agent: Optional[BethAgent] = None,
     audit_service: Optional[AuditService] = None,
+    reading_list_service: Optional[ReadingListService] = None,
 ) -> None:
     """Execute the pre-session analysis pipeline.
 
@@ -113,6 +115,29 @@ async def run_pre_session_pipeline(
         )
 
         # ------------------------------------------------------------------ #
+        # Stage 1b: reading context enrichment (optional, non-blocking)
+        # ------------------------------------------------------------------ #
+        reading_context = None
+        try:
+            rl_service = reading_list_service or ReadingListService(
+                session_factory=session_factory
+            )
+            reading_context = rl_service.get_session_reading_context(client_id)
+            if reading_context:
+                logger.info(
+                    "reading_context_loaded",
+                    session_id=session_id,
+                    client_id=client_id,
+                )
+        except Exception as exc:
+            logger.warning(
+                "reading_context_enrichment_failed",
+                session_id=session_id,
+                error=str(exc),
+            )
+            # Pipeline continues without reading context
+
+        # ------------------------------------------------------------------ #
         # Stages 2+3: rung_analysis & research (parallel)
         # ------------------------------------------------------------------ #
         update_pipeline_stage(session_factory, pipeline_id, "rung_analysis")
@@ -121,6 +146,7 @@ async def run_pre_session_pipeline(
             session_id=session_id,
             client_id=client_id,
             transcript=transcript_text,
+            reading_context=reading_context,
         )
 
         async def _run_rung():

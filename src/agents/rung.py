@@ -181,6 +181,13 @@ class RungAgent:
                 request.historical_context,
             ])
 
+        if request.reading_context:
+            parts.extend([
+                "",
+                "Reading material flagged by client for session discussion:",
+                request.reading_context,
+            ])
+
         if request.session_number:
             parts.extend([
                 "",
