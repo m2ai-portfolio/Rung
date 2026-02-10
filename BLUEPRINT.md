@@ -178,39 +178,107 @@
 
 ---
 
-### Phase F: Production Deployment  ⚪ **FUTURE**
+### Phase F: Production Deployment  ⚪ **NEXT**
 **Status**: Not Started
-**Estimated Duration**: 2 weeks
-**Dependencies**: Phase E complete, AWS environment provisioned
+**Estimated Duration**: 8-10 working days
+**Dependencies**: Phase E2 complete
+**Target Monthly Cost**: ~$130-170/month (right-sized for field test)
 
-#### Week 1: Infrastructure Provisioning
-- [ ] Execute AWS BAA (HIPAA requirement)
-- [ ] Create production VPC with private subnets
-- [ ] Deploy RDS PostgreSQL (production-grade, Multi-AZ)
-- [ ] Create S3 buckets (voice-memos, transcripts, encrypted)
-- [ ] Configure Cognito user pool with MFA
-- [ ] Create KMS keys (CMK hierarchy)
-- [ ] Deploy ECS Fargate cluster (production)
-- [ ] Configure ALB with SSL certificate
-- [ ] Set up CloudWatch dashboards
-- [ ] Configure audit log retention (7 years)
+#### Infrastructure Sizing (Field Test: 1 Therapist, 1-2 Clients)
 
-#### Week 2: Security & Testing
-- [ ] Run OWASP security scan
-- [ ] Penetration testing (if budget allows)
-- [ ] Load testing (k6 scripts)
-- [ ] Disaster recovery test
-- [ ] HIPAA compliance checklist (45 controls)
-- [ ] Create production runbooks
-- [ ] Onboard Madeline (therapist) as beta user
-- [ ] Execute first real pre-session workflow
-- [ ] Monitor for 1 week
+| Service | Size | Monthly Cost |
+|---------|------|-------------|
+| RDS PostgreSQL | db.t4g.micro, 20 GB gp3, single-AZ | ~$15 |
+| ECS Fargate | 0.5 vCPU, 1 GB, 1 task | ~$18 |
+| ALB | HTTPS (ACM cert) | ~$18 |
+| NAT Gateway | Single | ~$35 |
+| KMS Keys | 5 CMKs | ~$5 |
+| VPC Endpoints | Bedrock + Bedrock Runtime | ~$16 |
+| Bedrock (Claude 3.5 Sonnet) | ~8 sessions/month | ~$15-40 |
+| Perplexity API | ~8 sessions/month | ~$5-20 |
+| S3, CloudWatch, Route53, Secrets Manager, Cognito | Minimal | ~$5 |
+
+#### Sub-Phase F0: Prerequisites (1-2 days)
+
+Manual, non-automatable steps that block infrastructure provisioning.
+
+- [ ] **F0.1** Execute AWS BAA — AWS Console → Artifact → Accept BAA (requires AWS Organizations)
+- [ ] **F0.2** Request Bedrock model access — Claude 3.5 Sonnet in us-east-1 (24-48h approval)
+- [ ] **F0.3** Domain decision — Choose API domain (e.g., `api.rung.app` or subdomain of existing)
+- [ ] **F0.4** Request ACM SSL certificate — DNS validation for domain from F0.3 (free)
+- [ ] **F0.5** Create Terraform state backend — S3 bucket (versioned, encrypted) + DynamoDB lock table
+- [ ] **F0.6** Create `terraform/environments/prod/` — Copy from dev, adjust sizes/settings
+- [ ] **F0.7** Create production Perplexity API key — Store in Secrets Manager
+- [ ] **F0.8** Verify Slack webhook for notifications
+
+#### Sub-Phase F1: Infrastructure Provisioning (3-4 days)
+
+All Terraform-automatable. Dependency order: VPC → KMS → RDS/S3/Cognito → ALB → ECS → DNS.
+
+- [ ] **F1.1** Create production VPC — 2 AZs, private/public subnets, single NAT gateway, VPC endpoints (S3 gateway + Bedrock interface), VPC flow logs (7-year retention)
+- [ ] **F1.2** Create KMS keys — Master CMK, RDS key, S3 key, field encryption key, Secrets Manager key
+- [ ] **F1.3** Deploy RDS PostgreSQL — db.t4g.micro, 20 GB gp3, single-AZ, 35-day backup retention, encryption (KMS), force SSL, deletion protection ON, skip final snapshot OFF
+- [ ] **F1.4** Create S3 buckets — voice-memos, transcripts, exports; SSE-KMS encrypted, versioned, Glacier transition at 90 days
+- [ ] **F1.5** Configure Cognito — deletion protection ACTIVE, admin-create-user only, MFA ON, production callback/logout URLs
+- [ ] **F1.6** Deploy ALB with HTTPS — ACM certificate, HTTP→HTTPS redirect, deletion protection, access logs to S3
+- [ ] **F1.7** Deploy ECS Fargate — 0.5 vCPU / 1 GB, desired count 1, max 2, CloudWatch log retention 2557 days (7 years)
+- [ ] **F1.8** Configure Route53 DNS — Hosted zone + A record (alias) → ALB
+- [ ] **F1.9** Create CloudWatch alarms — ECS CPU/memory, RDS CPU/storage/connections, ALB 5xx rate → SNS email
+- [ ] **F1.10** Configure audit log retention — All log groups set to 2557 days (7 years) per HIPAA
+- [ ] **F1.11** Store secrets in Secrets Manager — PERPLEXITY_API_KEY, SLACK_WEBHOOK_URL, app-level secrets
+- [ ] **F1.12** Enable CloudTrail — Dedicated trail with S3 delivery for production account
+
+#### Sub-Phase F2: Security Validation & Onboarding (3-4 days)
+
+- [ ] **F2.1** Run dependency security audit — `pip audit` + `safety check`, fix critical/high vulnerabilities
+- [ ] **F2.2** HIPAA technical safeguard verification:
+  - [ ] Access Control (§164.312(a)): Cognito unique user IDs, 1-hour token expiry, KMS encryption
+  - [ ] Audit Controls (§164.312(b)): Audit service logs all PHI access, 7-year CloudWatch retention, VPC flow logs
+  - [ ] Integrity (§164.312(c)): S3 versioning, RDS backups, field-level encryption
+  - [ ] Authentication (§164.312(d)): MFA enforced, strong password policy
+  - [ ] Transmission Security (§164.312(e)): HTTPS enforced (ALB+ACM), RDS force_ssl, S3 HTTPS policy, VPC endpoints
+- [ ] **F2.3** Perplexity anonymization audit — Review 5-10 sample Rung agent queries, verify zero PHI leakage
+- [ ] **F2.4** Build and push Docker image — Tag `rung:v1.0.0`, push to production ECR
+- [ ] **F2.5** Run Alembic migrations — `alembic upgrade head` against production RDS, verify schema
+- [ ] **F2.6** First deploy to production ECS — Verify health check, verify `/docs` disabled in production
+- [ ] **F2.7** Create Madeline's Cognito account — Admin-create-user, add to therapists group, MFA setup on first login
+- [ ] **F2.8** Create Matthew as test client — POST `/clients` via API, verify encryption round-trip in production
+- [ ] **F2.9** Smoke test: pre-session pipeline — Upload voice memo → Bedrock inference → Perplexity research → clinical brief encrypted → client guide encrypted → audit logs → Slack notification
+- [ ] **F2.10** Smoke test: post-session pipeline — Submit session notes → development plan generated → progress analytics updated
+- [ ] **F2.11** Create production runbook — Deploy, rollback, view logs, rotate credentials, create/disable users, emergency shutdown
+- [ ] **F2.12** Backup/restore validation — Manual RDS snapshot → restore to new instance → verify data → delete test instance
+- [ ] **F2.13** Onboard Madeline — Login flow, MFA setup, trigger pre-session workflow, find clinical brief
+
+#### Explicitly Deferred (Not Needed for Field Test)
+
+| Item | Rationale | Revisit When |
+|------|-----------|-------------|
+| Multi-AZ RDS | Doubles cost; 1-user system, single-AZ + backups sufficient | Paying users |
+| Penetration testing | Cost prohibitive for solo project | Revenue or compliance audit |
+| Load testing (k6) | 1 therapist, ~8 sessions/month; meaningless at this scale | 10+ concurrent users |
+| Full 45-control HIPAA checklist | Many controls are administrative (policies, training); focus on technical safeguards | Pre-commercial launch |
+| WAF on ALB | Cognito auth + security groups sufficient for 1 user | Public-facing API |
+| Blue-green deployments | Rolling deploy with ECS circuit breaker sufficient | Multiple users relying on uptime |
+| Automated credential rotation | Manual rotation acceptable for field test | Production hardening |
+
+#### Known Security Gaps (Tracked)
+
+| Gap | Severity | Mitigation |
+|-----|----------|------------|
+| ALB currently HTTP-only | **High** | Fixed in F1.6 — no PHI until HTTPS active |
+| No CloudTrail | Medium | Fixed in F1.12 |
+| Perplexity has no BAA | Medium | Anonymization layer (ADR-005) + audit in F2.3 |
+| KMS policies reference Lambda (legacy) | Low | Update to reference ECS task role; not a security risk |
+| Terraform state is local | Medium | Fixed in F0.5 |
 
 **Completion Criteria**:
-- [ ] Production infrastructure deployed
-- [ ] HIPAA compliance verified
-- [ ] Beta user onboarded successfully
-- [ ] No critical issues in first week
+- [ ] Production infrastructure deployed and accessible via HTTPS
+- [ ] HIPAA technical safeguards verified with evidence
+- [ ] Perplexity anonymization audited (zero PHI in sample queries)
+- [ ] Both pipelines smoke-tested end-to-end in production
+- [ ] Madeline onboarded with MFA, first real session scheduled
+- [ ] Backup restore validated
+- [ ] No critical issues in first week of monitoring
 
 ---
 
@@ -250,6 +318,9 @@
 - [x] Phase E: Documentation
 - [x] Phase E2: Reading List Feature
 - [ ] Phase F: Production Deployment
+  - [ ] F0: Prerequisites (BAA, Bedrock access, domain, ACM cert, TF state)
+  - [ ] F1: Infrastructure Provisioning (VPC, RDS, S3, Cognito, ALB, ECS, DNS)
+  - [ ] F2: Security Validation & Onboarding (HIPAA verification, smoke tests, Madeline onboard)
 - [ ] Phase G: Couples Module (Phase 2)
 
 ---
